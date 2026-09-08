@@ -12,5 +12,26 @@ The editor owns reusable object definitions and map composition. Frontier consum
 - Authored data: [`docs/AUTHORING_MODEL.md`](docs/AUTHORING_MODEL.md)
 - Frontier handoff: [`docs/FRONTIER_INTEGRATION.md`](docs/FRONTIER_INTEGRATION.md)
 
-Implementation has not started. The first milestone is project foundation.
+Implementation is proceeding through the accepted GitHub milestones, beginning with project foundation.
 
+## Run the project
+
+Godot 4.7.1 is required.
+
+```bash
+./scripts/run.sh
+```
+
+If Godot is not named `godot` on your system:
+
+```bash
+GODOT_BIN=/path/to/godot ./scripts/run.sh
+```
+
+## Run automated checks
+
+```bash
+./scripts/test.sh
+```
+
+The test command verifies the exact Godot version and runs the shell checks headlessly.
