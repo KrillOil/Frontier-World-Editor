@@ -1,0 +1,16 @@
+- name: implementation
+  color: "1D76DB"
+  description: Independently reviewable implementation work
+- name: contract
+  color: "5319E7"
+  description: Changes an authored-data or integration contract
+- name: verification
+  color: "0E8A16"
+  description: Automated or manual evidence of behavior
+- name: decision-needed
+  color: "D93F0B"
+  description: Creator decision required before implementation proceeds
+- name: deferred
+  color: "C5DEF5"
+  description: Not in the commissioned scope
+

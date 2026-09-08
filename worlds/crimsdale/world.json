@@ -1,0 +1,27 @@
+{
+  "format_version": 1,
+  "world_id": "crimsdale",
+  "display_name": "Crimsdale",
+  "objects": [
+    {
+      "instance_id": "crimsdale_fountain_001",
+      "definition_id": "landmark_crimsdale_fountain",
+      "position": [0.0, 0.0, 0.0],
+      "rotation_y": 0.0
+    },
+    {
+      "instance_id": "crimsdale_house_001",
+      "definition_id": "building_crimsdale_house_a",
+      "position": [14.0, 0.0, -8.0],
+      "rotation_y": 90.0
+    }
+  ],
+  "spawn_points": [
+    {
+      "spawn_id": "player_start",
+      "position": [3.0, 0.0, 4.0],
+      "rotation_y": 180.0
+    }
+  ]
+}
+

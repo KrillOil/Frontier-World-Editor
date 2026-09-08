@@ -1,0 +1,18 @@
+{
+  "format_version": 1,
+  "definitions": [
+    {
+      "definition_id": "building_crimsdale_house_a",
+      "display_name": "Crimsdale House A",
+      "category": "building",
+      "scene_path": "res://content/crimsdale/buildings/house_a.tscn"
+    },
+    {
+      "definition_id": "landmark_crimsdale_fountain",
+      "display_name": "Crimsdale Fountain",
+      "category": "landmark",
+      "scene_path": "res://content/crimsdale/landmarks/fountain.tscn"
+    }
+  ]
+}
+

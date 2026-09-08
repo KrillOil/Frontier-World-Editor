@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://frontier.invalid/schemas/definitions-v1.json",
+  "title": "Frontier authored definitions v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format_version", "definitions"],
+  "properties": {
+    "format_version": { "const": 1 },
+    "definitions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["definition_id", "display_name", "category", "scene_path"],
+        "properties": {
+          "definition_id": { "$ref": "#/$defs/id" },
+          "display_name": { "type": "string", "minLength": 1 },
+          "category": { "enum": ["building", "prop", "landmark", "unit"] },
+          "scene_path": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" }
+  }
+}
+

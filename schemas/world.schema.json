@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://frontier.invalid/schemas/world-v1.json",
+  "title": "Frontier world composition v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format_version", "world_id", "display_name", "objects", "spawn_points"],
+  "properties": {
+    "format_version": { "const": 1 },
+    "world_id": { "$ref": "#/$defs/id" },
+    "display_name": { "type": "string", "minLength": 1 },
+    "objects": { "type": "array", "items": { "$ref": "#/$defs/object" } },
+    "spawn_points": { "type": "array", "items": { "$ref": "#/$defs/spawn" } }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+    "vector3": {
+      "type": "array",
+      "prefixItems": [{ "type": "number" }, { "type": "number" }, { "type": "number" }],
+      "items": false,
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "object": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["instance_id", "definition_id", "position", "rotation_y"],
+      "properties": {
+        "instance_id": { "$ref": "#/$defs/id" },
+        "definition_id": { "$ref": "#/$defs/id" },
+        "position": { "$ref": "#/$defs/vector3" },
+        "rotation_y": { "type": "number" }
+      }
+    },
+    "spawn": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["spawn_id", "position", "rotation_y"],
+      "properties": {
+        "spawn_id": { "$ref": "#/$defs/id" },
+        "position": { "$ref": "#/$defs/vector3" },
+        "rotation_y": { "type": "number" }
+      }
+    }
+  }
+}
+
