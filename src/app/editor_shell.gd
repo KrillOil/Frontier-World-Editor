@@ -20,6 +20,11 @@ var object_dialog: Window
 var unsaved_dialog: ConfirmationDialog
 var package_dialog: FileDialog
 var error_dialog: AcceptDialog
+var terrain_dialog: Window
+var terrain_confirmation: ConfirmationDialog
+var terrain_fields: Dictionary = {}
+var terrain_anchor: OptionButton
+var pending_terrain_action: Callable
 var pending_after_save: Callable
 var definition_list: ItemList
 var definition_id_field: LineEdit
@@ -45,6 +50,7 @@ func _ready() -> void:
 	inspector_content = $Workspace/Inspector/Content
 	_build_viewport()
 	_build_object_editor()
+	_build_terrain_editor()
 	_build_package_dialogs()
 	if not package.load_from_directory(DEFAULT_PACKAGE):
 		show_errors()
@@ -68,6 +74,7 @@ func _build_toolbar() -> void:
 	_add_button(bar, "World", func(): status("World workspace"))
 	_add_button(bar, "Open", request_open_package)
 	_add_button(bar, "Object Editor", show_object_editor)
+	_add_button(bar, "Terrain", show_terrain_editor)
 	bar.add_spacer(false)
 	_add_button(bar, "Undo", perform_undo)
 	_add_button(bar, "Redo", perform_redo)
@@ -156,7 +163,45 @@ func refresh_all() -> void:
 	refresh_world()
 	refresh_inspector()
 	refresh_definition_list()
-	dirty_label.text = "Unsaved changes" if package.dirty else "Saved"
+	refresh_terrain_preview()
+	dirty_label.text = "Unsaved changes" if package.dirty or (package.terrain != null and package.terrain.dirty) else "Saved"
+
+
+func refresh_terrain_preview() -> void:
+	var existing := world_root.get_node_or_null("TerrainPreview")
+	if existing != null:
+		existing.free()
+	var ground := world_root.get_node_or_null("Ground")
+	if ground != null:
+		ground.visible = package.terrain == null
+	if package.terrain == null:
+		return
+	var terrain_mesh := MeshInstance3D.new()
+	terrain_mesh.name = "TerrainPreview"
+	terrain_mesh.set_meta("terrain_preview", true)
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	var vertices := PackedVector3Array()
+	var indices := PackedInt32Array()
+	var grid: Dictionary = package.terrain.data.grid
+	for z in int(grid.depth_cells) + 1:
+		for x in int(grid.width_cells) + 1:
+			vertices.append(Vector3(float(grid.origin_x_m) + x * float(grid.cell_size_m), float(grid.heights_cm[z * (int(grid.width_cells) + 1) + x]) / 100.0, float(grid.origin_z_m) + z * float(grid.cell_size_m)))
+	for z in int(grid.depth_cells):
+		for x in int(grid.width_cells):
+			var north_west := z * (int(grid.width_cells) + 1) + x
+			var south_west := north_west + int(grid.width_cells) + 1
+			indices.append_array([north_west, south_west, north_west + 1, north_west + 1, south_west, south_west + 1])
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	arrays[Mesh.ARRAY_INDEX] = indices
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	terrain_mesh.mesh = mesh
+	var material := StandardMaterial3D.new()
+	material.albedo_color = Color("4f6849")
+	material.roughness = 1.0
+	terrain_mesh.material_override = material
+	world_root.add_child(terrain_mesh)
 
 
 func refresh_palette() -> void:
@@ -511,6 +556,132 @@ func _build_object_editor() -> void:
 	form.add_child(help)
 
 
+func _build_terrain_editor() -> void:
+	terrain_dialog = Window.new()
+	terrain_dialog.title = "Terrain Document"
+	terrain_dialog.size = Vector2i(560, 620)
+	terrain_dialog.close_requested.connect(terrain_dialog.hide)
+	add_child(terrain_dialog)
+	var form := VBoxContainer.new()
+	form.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	form.offset_left = 18
+	form.offset_top = 18
+	form.offset_right = -18
+	form.offset_bottom = -18
+	terrain_dialog.add_child(form)
+	var explanation := Label.new()
+	explanation.text = "Create or resize the canonical terrain grid. Dimensions count cells; heights use centimetres."
+	explanation.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	form.add_child(explanation)
+	for field in ["width_cells", "depth_cells", "cell_size_m", "base_height_cm", "origin_x_m", "origin_z_m"]:
+		terrain_fields[field] = _add_field(form, field.replace("_", " ").capitalize())
+	terrain_anchor = OptionButton.new()
+	for anchor in ["north_west", "north_center", "north_east", "center_west", "center", "center_east", "south_west", "south_center", "south_east"]:
+		terrain_anchor.add_item(anchor.replace("_", " ").capitalize())
+		terrain_anchor.set_item_metadata(terrain_anchor.item_count - 1, anchor)
+	form.add_child(terrain_anchor)
+	_add_button(form, "Create Terrain", request_create_terrain)
+	_add_button(form, "Resize / Edit Bounds", request_resize_terrain)
+	_add_button(form, "Reset Terrain", request_reset_terrain)
+	var limits := Label.new()
+	limits.text = "Limits: 8–512 cells per axis; cell sizes 0.5, 1, 2, or 4 metres. Structural operations are one bounded undo transaction."
+	limits.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	form.add_child(limits)
+	terrain_confirmation = ConfirmationDialog.new()
+	terrain_confirmation.title = "Confirm Terrain Transaction"
+	terrain_confirmation.confirmed.connect(commit_pending_terrain_action)
+	add_child(terrain_confirmation)
+
+
+func show_terrain_editor() -> void:
+	var terrain = package.terrain
+	terrain_fields.width_cells.text = str(terrain.data.grid.width_cells if terrain != null else 128)
+	terrain_fields.depth_cells.text = str(terrain.data.grid.depth_cells if terrain != null else 128)
+	terrain_fields.cell_size_m.text = str(terrain.data.grid.cell_size_m if terrain != null else 1.0)
+	terrain_fields.base_height_cm.text = "0"
+	terrain_fields.origin_x_m.text = str(terrain.data.grid.origin_x_m if terrain != null else -64.0)
+	terrain_fields.origin_z_m.text = str(terrain.data.grid.origin_z_m if terrain != null else -64.0)
+	terrain_dialog.popup_centered()
+
+
+func request_create_terrain() -> void:
+	request_terrain_transaction("Create terrain? Existing terrain data will be replaced.", _create_terrain)
+
+
+func request_resize_terrain() -> void:
+	if package.terrain == null:
+		show_blocking_error("Create terrain before resizing it.")
+		return
+	var old_cells := int(package.terrain.data.grid.width_cells) * int(package.terrain.data.grid.depth_cells)
+	var new_cells := int(terrain_fields.width_cells.text) * int(terrain_fields.depth_cells.text)
+	var affected := _terrain_resize_impact()
+	request_terrain_transaction("Resize terrain from %d to %d cells? %d object(s) and %d spawn(s) would lie outside the new bounds; their authored positions and attachment policies will be preserved. Cropped terrain remains undoable until its bounded history entry is evicted." % [old_cells, new_cells, affected.objects, affected.spawns], _resize_terrain)
+
+
+func request_reset_terrain() -> void:
+	if package.terrain == null:
+		show_blocking_error("Create terrain before resetting it.")
+		return
+	request_terrain_transaction("Reset heights, surfaces, cliffs, water, and pathing? Environment and attachments are preserved. This is one undoable transaction.", _reset_terrain)
+
+
+func _terrain_resize_impact() -> Dictionary:
+	var width := int(terrain_fields.width_cells.text)
+	var depth := int(terrain_fields.depth_cells.text)
+	var anchor: String = terrain_anchor.get_item_metadata(terrain_anchor.selected)
+	var bounds: Rect2 = package.terrain.prospective_bounds(width, depth, anchor)
+	var affected := {"objects": 0, "spawns": 0}
+	for instance in package.world.get("objects", []):
+		if not bounds.has_point(Vector2(float(instance.position[0]), float(instance.position[2]))):
+			affected.objects += 1
+	for spawn in package.world.get("spawn_points", []):
+		if not bounds.has_point(Vector2(float(spawn.position[0]), float(spawn.position[2]))):
+			affected.spawns += 1
+	return affected
+
+
+func request_terrain_transaction(message: String, action: Callable) -> void:
+	pending_terrain_action = action
+	terrain_confirmation.dialog_text = message
+	terrain_confirmation.popup_centered()
+
+
+func commit_pending_terrain_action() -> void:
+	if pending_terrain_action.is_valid():
+		pending_terrain_action.call()
+
+
+func _create_terrain() -> void:
+	var terrain = package.terrain if package.terrain != null else preload("res://src/domain/terrain_document.gd").new()
+	if terrain.replace(int(terrain_fields.width_cells.text), int(terrain_fields.depth_cells.text), float(terrain_fields.cell_size_m.text), int(terrain_fields.base_height_cm.text), float(terrain_fields.origin_x_m.text), float(terrain_fields.origin_z_m.text)):
+		package.terrain = terrain
+		package.dirty = true
+		status("Created %s × %s terrain" % [terrain_fields.width_cells.text, terrain_fields.depth_cells.text])
+		refresh_all()
+	else:
+		package.errors = terrain.errors
+		show_errors()
+
+
+func _resize_terrain() -> void:
+	var anchor: String = terrain_anchor.get_item_metadata(terrain_anchor.selected)
+	if package.terrain.resize(int(terrain_fields.width_cells.text), int(terrain_fields.depth_cells.text), anchor):
+		status("Resized terrain using %s anchor" % anchor.replace("_", " "))
+		refresh_all()
+	else:
+		package.errors = package.terrain.errors
+		show_errors()
+
+
+func _reset_terrain() -> void:
+	if package.terrain.reset(int(terrain_fields.base_height_cm.text)):
+		status("Reset terrain to %s cm" % terrain_fields.base_height_cm.text)
+		refresh_all()
+	else:
+		package.errors = package.terrain.errors
+		show_errors()
+
+
 func _build_package_dialogs() -> void:
 	package_dialog = FileDialog.new()
 	package_dialog.title = "Open World Package Directory"
@@ -669,13 +840,19 @@ func unique_definition_id(base: String) -> String:
 
 
 func perform_undo() -> void:
-	if package.undo():
+	if package.terrain != null and package.terrain.can_undo() and package.terrain.undo():
+		selected_instance_id = ""
+		refresh_all()
+	elif package.undo():
 		selected_instance_id = ""
 		refresh_all()
 
 
 func perform_redo() -> void:
-	if package.redo():
+	if package.terrain != null and package.terrain.can_redo() and package.terrain.redo():
+		selected_instance_id = ""
+		refresh_all()
+	elif package.redo():
 		selected_instance_id = ""
 		refresh_all()
 

@@ -1,6 +1,7 @@
 class_name WorldPackage
 extends RefCounted
 
+const TerrainDocumentScript = preload("res://src/domain/terrain_document.gd")
 const FORMAT_VERSION := 1
 const CATEGORIES := ["building", "prop", "landmark", "unit"]
 const ID_PATTERN := "^[a-z][a-z0-9_]*$"
@@ -12,6 +13,7 @@ var definitions: Array[Dictionary] = []
 var world: Dictionary = {}
 var errors: Array[String] = []
 var dirty := false
+var terrain
 var _undo: Array[Dictionary] = []
 var _redo: Array[Dictionary] = []
 
@@ -25,6 +27,13 @@ func load_from_directory(path: String) -> bool:
 	for entry in loaded_definitions.get("definitions", []):
 		candidate_definitions.append(entry.duplicate(true))
 	var candidate_world: Dictionary = loaded_world.duplicate(true)
+	var candidate_terrain = null
+	var terrain_path := path.path_join("terrain.json")
+	if FileAccess.file_exists(terrain_path):
+		candidate_terrain = TerrainDocumentScript.new()
+		if not candidate_terrain.load_from_file(terrain_path):
+			errors = candidate_terrain.errors.duplicate()
+			return false
 	var validation_errors := validate_data(loaded_definitions, candidate_world)
 	if not validation_errors.is_empty():
 		errors = validation_errors
@@ -32,6 +41,7 @@ func load_from_directory(path: String) -> bool:
 	package_path = path
 	definitions = candidate_definitions
 	world = candidate_world
+	terrain = candidate_terrain
 	errors.clear()
 	dirty = false
 	_undo.clear()
@@ -296,12 +306,24 @@ func save() -> bool:
 	var definition_document := {"format_version": FORMAT_VERSION, "definitions": definitions}
 	var definitions_path := package_path.path_join("definitions.json")
 	var world_path := package_path.path_join("world.json")
+	var paths := [definitions_path, world_path]
 	if not _write_temporary(definitions_path, JSON.stringify(definition_document, "  ") + "\n"):
 		return false
 	if not _write_temporary(world_path, JSON.stringify(world, "  ") + "\n"):
 		return false
-	if not _replace_pair(definitions_path, world_path):
+	if terrain != null:
+		var terrain_failures: Array[String] = terrain.validate(terrain.data)
+		if not terrain_failures.is_empty():
+			errors = terrain_failures
+			return false
+		var terrain_path := package_path.path_join("terrain.json")
+		if not _write_temporary(terrain_path, terrain.serialize()):
+			return false
+		paths.append(terrain_path)
+	if not _replace_files(paths):
 		return false
+	if terrain != null:
+		terrain.mark_saved(package_path.path_join("terrain.json"))
 	dirty = false
 	return true
 
@@ -330,8 +352,7 @@ func _write_temporary(path: String, content: String) -> bool:
 	return true
 
 
-func _replace_pair(definitions_path: String, world_path: String) -> bool:
-	var paths := [definitions_path, world_path]
+func _replace_files(paths: Array) -> bool:
 	for path in paths:
 		var backup_path: String = path + ".bak"
 		if FileAccess.file_exists(backup_path):
