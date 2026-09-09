@@ -45,7 +45,8 @@ func _ready() -> void:
 	if not package.load_from_directory(DEFAULT_PACKAGE):
 		show_errors()
 	else:
-		status("Opened Crimsdale")
+		var resource_failures: Array[String] = package.resource_errors()
+		status("Opened Crimsdale" if resource_failures.is_empty() else " | ".join(resource_failures))
 	refresh_all()
 
 
@@ -663,7 +664,8 @@ func open_package(path: String) -> void:
 		selected_instance_id = ""
 		cancel_placement()
 		refresh_all()
-		status("Opened %s" % package.world.get("display_name", path))
+		var resource_failures: Array[String] = package.resource_errors()
+		status("Opened %s" % package.world.get("display_name", path) if resource_failures.is_empty() else " | ".join(resource_failures))
 	else:
 		show_errors()
 

@@ -41,6 +41,15 @@ func validate() -> Array[String]:
 	return validate_data({"format_version": FORMAT_VERSION, "definitions": definitions}, world)
 
 
+func resource_errors() -> Array[String]:
+	var failures: Array[String] = []
+	for definition in definitions:
+		var scene_path: String = definition.get("scene_path", "")
+		if scene_path.begins_with("res://") and not ResourceLoader.exists(scene_path):
+			failures.append("Definition '%s' cannot load scene_path '%s'" % [definition.definition_id, scene_path])
+	return failures
+
+
 func validate_data(definition_document: Variant, world_document: Variant) -> Array[String]:
 	var failures: Array[String] = []
 	if not definition_document is Dictionary:
@@ -90,8 +99,6 @@ func validate_data(definition_document: Variant, world_document: Variant) -> Arr
 			failures.append("%s.category is unsupported" % context)
 		if not definition.get("scene_path") is String or definition.get("scene_path", "").is_empty():
 			failures.append("%s.scene_path is required" % context)
-		elif definition.get("scene_path", "").begins_with("res://") and not ResourceLoader.exists(definition.scene_path):
-			failures.append("%s.scene_path cannot be loaded: '%s'" % [context, definition.scene_path])
 
 	var instance_ids := {}
 	for index in world_document.objects.size():
@@ -248,6 +255,7 @@ func redo() -> bool:
 
 func save() -> bool:
 	errors = validate()
+	errors.append_array(resource_errors())
 	if not errors.is_empty():
 		return false
 	if package_path.is_empty():

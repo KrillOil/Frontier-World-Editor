@@ -13,6 +13,7 @@ func _init() -> void:
 	var package = WorldPackageScript.new()
 	_check(package.load_from_directory(temporary_package), "Crimsdale fixture loads")
 	_check(package.validate().is_empty(), "Crimsdale fixture validates")
+	_check(package.resource_errors().is_empty(), "Crimsdale preview resources resolve")
 
 	var duplicate_definitions := {"format_version": 1, "definitions": package.definitions.duplicate(true)}
 	duplicate_definitions.definitions.append(package.definitions[0].duplicate(true))
@@ -32,6 +33,12 @@ func _init() -> void:
 	_check(package.undo() and package.world.objects.size() == object_count, "Undo restores prior state")
 	_check(package.redo() and package.world.objects.size() == object_count + 1, "Redo reapplies state")
 	_check(not package.delete_definition("building_crimsdale_house_a"), "Referenced definition deletion is blocked")
+	var missing_resource: Dictionary = package.definitions[0].duplicate(true)
+	missing_resource.definition_id = "building_missing_preview"
+	missing_resource.scene_path = "res://content/missing_preview.tscn"
+	_check(package.create_definition(missing_resource), "Missing preview resources remain inspectable")
+	_check(_contains(package.resource_errors(), "building_missing_preview"), "Missing preview resource error identifies its definition")
+	_check(package.undo(), "Missing preview fixture can be removed before save")
 	_check(package.set_player_start(Vector3(5, 0, 6), 90), "Player start can be updated")
 	var player_start: Dictionary = package.world.spawn_points[0]
 	_check(player_start.position == [5.0, 0.0, 6.0] and player_start.rotation_y == 90, "Player start remains unique and stores its transform")
