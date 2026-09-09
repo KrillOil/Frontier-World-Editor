@@ -1,6 +1,7 @@
 extends Control
 
 const WorldPackageScript = preload("res://src/domain/world_package.gd")
+const TerrainSculptorScript = preload("res://src/domain/terrain_sculptor.gd")
 const DEFAULT_PACKAGE := "res://worlds/crimsdale"
 
 var package = WorldPackageScript.new()
@@ -25,6 +26,16 @@ var terrain_confirmation: ConfirmationDialog
 var terrain_fields: Dictionary = {}
 var terrain_anchor: OptionButton
 var pending_terrain_action: Callable
+var sculptor
+var sculpt_enabled := false
+var sculpt_tool: OptionButton
+var sculpt_radius: SpinBox
+var sculpt_strength: SpinBox
+var sculpt_falloff: OptionButton
+var sculpt_target: SpinBox
+var sculpt_seed: SpinBox
+var sculpt_sample_target: CheckBox
+var brush_preview: MeshInstance3D
 var pending_after_save: Callable
 var definition_list: ItemList
 var definition_id_field: LineEdit
@@ -49,6 +60,7 @@ func _ready() -> void:
 	palette_content = $Workspace/Palette/Content
 	inspector_content = $Workspace/Inspector/Content
 	_build_viewport()
+	_build_sculpt_hud()
 	_build_object_editor()
 	_build_terrain_editor()
 	_build_package_dialogs()
@@ -75,6 +87,7 @@ func _build_toolbar() -> void:
 	_add_button(bar, "Open", request_open_package)
 	_add_button(bar, "Object Editor", show_object_editor)
 	_add_button(bar, "Terrain", show_terrain_editor)
+	_add_button(bar, "Sculpt", toggle_sculpt_mode)
 	bar.add_spacer(false)
 	_add_button(bar, "Undo", perform_undo)
 	_add_button(bar, "Redo", perform_redo)
@@ -158,6 +171,112 @@ func _build_viewport() -> void:
 	update_camera()
 
 
+func _build_sculpt_hud() -> void:
+	var hud := HFlowContainer.new()
+	hud.name = "SculptHUD"
+	hud.visible = false
+	$Workspace/Viewport/Content.add_child(hud)
+	$Workspace/Viewport/Content.move_child(hud, 0)
+	var label := Label.new()
+	label.text = "SCULPT"
+	hud.add_child(label)
+	sculpt_tool = OptionButton.new()
+	for name in TerrainSculptorScript.TOOLS:
+		sculpt_tool.add_item(name.capitalize())
+		sculpt_tool.set_item_metadata(sculpt_tool.item_count - 1, name)
+	hud.add_child(sculpt_tool)
+	sculpt_radius = _hud_spin(hud, "Radius m", 1.0, 64.0, 3.0, 0.5)
+	sculpt_strength = _hud_spin(hud, "Strength", 0.0, 1000.0, 20.0, 1.0)
+	sculpt_falloff = OptionButton.new()
+	for name in TerrainSculptorScript.FALLOFFS:
+		sculpt_falloff.add_item(name.capitalize())
+		sculpt_falloff.set_item_metadata(sculpt_falloff.item_count - 1, name)
+	sculpt_falloff.select(2)
+	hud.add_child(sculpt_falloff)
+	sculpt_target = _hud_spin(hud, "Target cm", -32768.0, 32767.0, 0.0, 1.0)
+	sculpt_sample_target = CheckBox.new()
+	sculpt_sample_target.text = "Sample target"
+	hud.add_child(sculpt_sample_target)
+	sculpt_seed = _hud_spin(hud, "Seed", -2147483648.0, 2147483647.0, 1.0, 1.0)
+	var help := Label.new()
+	help.text = "1–6 tools · drag to sculpt · Esc cancels"
+	hud.add_child(help)
+
+
+func _hud_spin(parent: Control, title: String, minimum: float, maximum: float, initial: float, step: float) -> SpinBox:
+	var label := Label.new()
+	label.text = title
+	parent.add_child(label)
+	var spin := SpinBox.new()
+	spin.min_value = minimum
+	spin.max_value = maximum
+	spin.step = step
+	spin.value = initial
+	spin.custom_minimum_size.x = 80
+	parent.add_child(spin)
+	return spin
+
+
+func toggle_sculpt_mode() -> void:
+	if package.terrain == null:
+		show_blocking_error("Create terrain before sculpting it.")
+		return
+	sculpt_enabled = not sculpt_enabled
+	$Workspace/Viewport/Content/SculptHUD.visible = sculpt_enabled
+	if sculpt_enabled:
+		cancel_placement()
+		sculptor = TerrainSculptorScript.new(package.terrain)
+		_make_brush_preview()
+		status("Sculpt mode: drag on terrain; keys 1–6 select tools; Escape cancels a stroke")
+	else:
+		cancel_sculpt_stroke()
+		if brush_preview != null:
+			brush_preview.queue_free()
+			brush_preview = null
+		status("Selection tool")
+
+
+func _make_brush_preview() -> void:
+	brush_preview = MeshInstance3D.new()
+	brush_preview.name = "TerrainBrushPreview"
+	var disc := CylinderMesh.new()
+	disc.top_radius = 1.0
+	disc.bottom_radius = 1.0
+	disc.height = 0.025
+	disc.radial_segments = 48
+	var material := StandardMaterial3D.new()
+	material.albedo_color = Color(0.2, 0.85, 0.45, 0.28)
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	disc.material = material
+	brush_preview.mesh = disc
+	world_root.add_child(brush_preview)
+	_update_brush_preview(mouse_position)
+
+
+func _update_brush_preview(screen_position: Vector2) -> void:
+	if brush_preview == null:
+		return
+	var point := ground_position(screen_position)
+	point.y = package.terrain.sample_height(point.x, point.z) + 0.03
+	brush_preview.position = point
+	brush_preview.scale = Vector3(sculpt_radius.value, 1.0, sculpt_radius.value)
+
+
+func _sculpt_parameters() -> Dictionary:
+	var parameters := {"radius_m": sculpt_radius.value, "strength": sculpt_strength.value, "falloff": sculpt_falloff.get_item_metadata(sculpt_falloff.selected), "noise_seed": roundi(sculpt_seed.value)}
+	if not sculpt_sample_target.button_pressed:
+		parameters.target_height_cm = roundi(sculpt_target.value)
+	return parameters
+
+
+func cancel_sculpt_stroke() -> void:
+	if sculptor != null and sculptor.active:
+		sculptor.cancel()
+		refresh_terrain_preview()
+		status("Sculpt stroke cancelled")
+
+
 func refresh_all() -> void:
 	refresh_palette()
 	refresh_world()
@@ -186,7 +305,9 @@ func refresh_terrain_preview() -> void:
 	var grid: Dictionary = package.terrain.data.grid
 	for z in int(grid.depth_cells) + 1:
 		for x in int(grid.width_cells) + 1:
-			vertices.append(Vector3(float(grid.origin_x_m) + x * float(grid.cell_size_m), float(grid.heights_cm[z * (int(grid.width_cells) + 1) + x]) / 100.0, float(grid.origin_z_m) + z * float(grid.cell_size_m)))
+			var height_index := z * (int(grid.width_cells) + 1) + x
+			var height_cm: int = sculptor.preview_height_cm(height_index) if sculptor != null and sculptor.active else int(grid.heights_cm[height_index])
+			vertices.append(Vector3(float(grid.origin_x_m) + x * float(grid.cell_size_m), float(height_cm) / 100.0, float(grid.origin_z_m) + z * float(grid.cell_size_m)))
 	for z in int(grid.depth_cells):
 		for x in int(grid.width_cells):
 			var north_west := z * (int(grid.width_cells) + 1) + x
@@ -370,8 +491,30 @@ func refresh_inspector() -> void:
 
 
 func _on_viewport_input(event: InputEvent) -> void:
+	if sculpt_enabled and event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		viewport_container.grab_focus()
+		mouse_position = event.position
+		var point := ground_position(event.position)
+		if event.pressed:
+			var selected_tool: String = sculpt_tool.get_item_metadata(sculpt_tool.selected)
+			sculptor.begin(selected_tool, Vector2(point.x, point.z), _sculpt_parameters())
+			refresh_terrain_preview()
+		else:
+			if sculptor.commit():
+				status("Sculpt stroke committed")
+			else:
+				package.errors = package.terrain.errors
+				show_errors()
+			refresh_all()
+		return
 	if event is InputEventMouseMotion:
 		mouse_position = event.position
+		if sculpt_enabled:
+			_update_brush_preview(event.position)
+			if sculptor != null and sculptor.active and event.button_mask & MOUSE_BUTTON_MASK_LEFT:
+				var point := ground_position(event.position)
+				sculptor.extend(Vector2(point.x, point.z))
+				refresh_terrain_preview()
 		if event.button_mask & MOUSE_BUTTON_MASK_MIDDLE:
 			if event.shift_pressed:
 				var right := camera.global_basis.x
@@ -415,11 +558,16 @@ func _on_viewport_input(event: InputEvent) -> void:
 				select_at(event.position)
 	elif event is InputEventKey and event.pressed:
 		if event.keycode == KEY_ESCAPE:
-			if moving_instance:
+			if sculpt_enabled and sculptor != null and sculptor.active:
+				cancel_sculpt_stroke()
+			elif moving_instance:
 				moving_instance = false
 				status("Move cancelled")
 			else:
 				cancel_placement()
+		elif sculpt_enabled and event.keycode >= KEY_1 and event.keycode <= KEY_6:
+			sculpt_tool.select(int(event.keycode - KEY_1))
+			status("Sculpt tool: %s" % sculpt_tool.get_item_text(sculpt_tool.selected))
 		elif event.keycode == KEY_G and not selected_instance_id.is_empty():
 			moving_instance = true
 			status("Move: click a ground position or Escape to cancel")
