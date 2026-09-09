@@ -56,5 +56,6 @@ The test command verifies the exact Godot version and runs the shell checks head
 - Sculpt: choose Raise, Lower, Flatten, Smooth, Plateau, or Noise; tune radius/strength/falloff in the viewport HUD; drag to apply one undoable stroke; press `Escape` before release to cancel
 - Surfaces: browse the Crimsdale texture palette, manage up to four portable layers, and paint or erase normalized blends with live viewport feedback
 - Cliffs & Water: raise/lower discrete cliff cells, author traversable ramp edges, replace cliff style, and preview global shallow/deep water with derived shores
+- Pathing: toggle the reason-coded walkability overlay, paint/erase movement or placement blocks, inspect three clearance sizes, and validate starts and isolated areas
 
 `Test World` uses `FRONTIER_EXECUTABLE` and the accepted `--world-package <path> --spawn player_start` contract. Set `FRONTIER_PROJECT_PATH` as well when the executable is Godot 4.7.1 and Frontier is being run from source.

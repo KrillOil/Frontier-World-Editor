@@ -69,6 +69,12 @@ Cliff levels are per-cell signed integers in `[-16,16]`; each level contributes 
 
 Water is one optional horizontal plane at `level_cm`. Cell-center depth is the plane minus bilinear terrain height and the cell cliff contribution: `<=0` is dry, `(0,100]` cm is shallow, and `>100` cm is deep. Shores are algorithm-versioned derived east/south dry-to-wet edges in row-major order. They are regenerated rather than saved, so regeneration is seam-safe and idempotent.
 
+### Effective pathing
+
+Pathing uses the terrain cell grid and keeps movement separate from building placement. Authored `blocked` only adds a restriction; erase restores `inherit`. Movement also blocks deep water, un-ramped cliff edges, and slopes above 45°. Placement blocks any water, cliff-edge cells, and slopes above 15°. Diagonal movement requires both adjacent cardinal cells and the shared edge, so it cannot cut corners.
+
+Supported circular clearances are 0.5 m, 1 m, and 2 m measured from cell centers; bounds count as blocked. Connectivity flood-fills cardinally from `player_start`: unreachable spawns are errors and remaining isolated traversable cells are warnings. Results contain stable reason codes, severity, and exact cells. Overlay rebuilds publish atomically; cancellation retains the last valid result and marks changed data stale until rebuilt.
+
 Resize, reset, paste, layer lifecycle, pathing rebuild, and runtime build are previewed transactions. They report changed/cropped samples and affected objects/spawns, commit all canonical files or none, and respond to cancellation within 250 ms.
 
 ## Object and spawn grounding
