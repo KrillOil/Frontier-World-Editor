@@ -11,12 +11,13 @@ The initial sequence must enable:
 1. Open the editor into a world workspace.
 2. Navigate a known Crimsdale reference world.
 3. Select an existing placed object and inspect its identity and transform.
-4. Choose an editor-owned definition from a palette.
-5. Preview and place an instance on the ground.
-6. Move, rotate, and delete a selected instance.
-7. Save and reopen with no semantic data loss.
-8. Define and place `player_start`.
-9. Launch Frontier through **Test World** and observe the saved composition.
+4. Create, duplicate, edit, and safely delete basic object definitions inside the editor.
+5. Choose an editor-owned definition from a palette.
+6. Preview and place an instance on the ground.
+7. Move, rotate, delete, undo, and redo instance changes.
+8. Save and reopen with no semantic data loss.
+9. Define and place `player_start`.
+10. Launch Frontier through **Test World** and observe the saved composition.
 
 ## Required workflow character
 
@@ -37,3 +38,4 @@ The initial sequence must enable:
 
 Deferred work must not be added as architecture “for later” unless a commissioned issue needs an extension point now.
 
+[`MVP.md`](MVP.md) is the complete behavioral contract for this commissioned scope.

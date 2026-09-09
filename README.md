@@ -9,6 +9,7 @@ The editor owns reusable object definitions and map composition. Frontier consum
 - Agents: read [`AGENTS.md`](AGENTS.md), then take one ready GitHub issue.
 - Creator: use issues and milestones to approve scope and verify outcomes.
 - Product boundaries: [`docs/SCOPE.md`](docs/SCOPE.md)
+- Complete first MVP: [`docs/MVP.md`](docs/MVP.md)
 - Authored data: [`docs/AUTHORING_MODEL.md`](docs/AUTHORING_MODEL.md)
 - Frontier handoff: [`docs/FRONTIER_INTEGRATION.md`](docs/FRONTIER_INTEGRATION.md)
 

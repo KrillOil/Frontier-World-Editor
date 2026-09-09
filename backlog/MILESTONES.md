@@ -56,15 +56,33 @@ Outcome: existing objects can be selected and understood.
 - [ ] Values reflect the canonical authored model.
 - [ ] Editing remains out of scope for this issue.
 
-## M04 — Object Placement and Transform
+## M04 — Object Definitions
+
+Outcome: the Creator can define reusable content inside the editor and use it immediately.
+
+### Issue: Browse definitions in the Object Editor and palette
+
+- [ ] Both workspaces group v1 definitions by category and support search.
+- [ ] They display definition names and stable IDs.
+- [ ] Changes in the Object Editor update the palette without restarting.
+
+### Issue: Create and duplicate a basic object definition
+
+- [ ] Creation requires every field in `definitions.schema.json`.
+- [ ] IDs are validated for format and uniqueness before creation.
+- [ ] Duplicate copies editable fields but requires a new ID.
+- [ ] New definitions participate in undo/redo and mark the package dirty.
+
+### Issue: Edit and safely delete a basic object definition
+
+- [ ] Display name, category, and scene path can be edited; ID is immutable.
+- [ ] Referencing previews and palette entries update immediately.
+- [ ] Delete is blocked while instances reference the definition and identifies affected instances.
+- [ ] Definition edits and deletion participate in undo/redo.
+
+## M05 — Object Placement and Transform
 
 Outcome: the Creator can compose a settlement using editor-owned definitions.
-
-### Issue: Browse definitions in the object palette
-
-- [ ] Palette groups v1 definitions by category.
-- [ ] It displays definition names and stable IDs.
-- [ ] Selecting a definition enters placement mode.
 
 ### Issue: Preview, rotate, place, and cancel an object
 
@@ -77,7 +95,8 @@ Outcome: the Creator can compose a settlement using editor-owned definitions.
 
 - [ ] Visual controls update canonical position or yaw.
 - [ ] Numeric inspector fields support precise edits.
-- [ ] Delete removes only the selected instance and supports confirmation/undo as decided during implementation.
+- [ ] Delete removes only the selected instance.
+- [ ] Place, move, rotate, and delete participate in undo/redo.
 
 ### Issue: Place and edit the player start
 
@@ -85,7 +104,7 @@ Outcome: the Creator can compose a settlement using editor-owned definitions.
 - [ ] Position and yaw are editable.
 - [ ] Duplicate reserved starts are prevented with an actionable message.
 
-## M05 — Deterministic Save and Load
+## M06 — Deterministic Save and Load
 
 Outcome: authored work survives closing and reopening without semantic drift.
 
@@ -95,13 +114,20 @@ Outcome: authored work survives closing and reopening without semantic drift.
 - [ ] Output ordering follows `docs/AUTHORING_MODEL.md`.
 - [ ] Saving unchanged content produces no semantic or ordering diff.
 
+### Issue: Track dirty state and guard package transitions
+
+- [ ] Authored changes visibly mark the package dirty.
+- [ ] Open, close, and Test World offer Save, Discard, and Cancel when dirty.
+- [ ] Failed open leaves the current valid package untouched.
+- [ ] Failed save preserves the last valid files and dirty state.
+
 ### Issue: Verify semantic round trips
 
 - [ ] Automated tests cover definitions, instances, transforms, and spawn points.
 - [ ] Open → save → reopen preserves all authored meaning.
 - [ ] Malformed packages report file and field context.
 
-## M06 — Test World Integration
+## M07 — Test World Integration
 
 Outcome: **Test World** launches Frontier directly into the saved Crimsdale composition.
 
@@ -117,4 +143,3 @@ Outcome: **Test World** launches Frontier directly into the saved Crimsdale comp
 - [ ] Frontier receives the package path and `player_start` explicitly.
 - [ ] Frontier opens the edited composition without ordinary player menus.
 - [ ] Validation, launch, and runtime-load failures are visible in the editor.
-
