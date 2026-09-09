@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://frontier.invalid/schemas/terrain-v1.json",
+  "title": "Frontier authored terrain v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["terrain_format_version", "algorithm_version", "grid", "surfaces", "cliffs", "water", "pathing", "environment", "attachments"],
+  "properties": {
+    "terrain_format_version": { "const": 1 },
+    "algorithm_version": { "const": 1 },
+    "grid": {
+      "type": "object", "additionalProperties": false,
+      "required": ["origin_x_m", "origin_z_m", "cell_size_m", "width_cells", "depth_cells", "heights_cm"],
+      "properties": {
+        "origin_x_m": { "type": "number" }, "origin_z_m": { "type": "number" },
+        "cell_size_m": { "enum": [0.5, 1, 2, 4] },
+        "width_cells": { "type": "integer", "minimum": 8, "maximum": 512 },
+        "depth_cells": { "type": "integer", "minimum": 8, "maximum": 512 },
+        "heights_cm": { "type": "array", "items": { "type": "integer", "minimum": -32768, "maximum": 32767 } }
+      }
+    },
+    "surfaces": {
+      "type": "object", "additionalProperties": false,
+      "required": ["layer_ids", "weights"],
+      "properties": {
+        "layer_ids": { "type": "array", "minItems": 1, "maxItems": 4, "uniqueItems": true, "items": { "$ref": "#/$defs/id" } },
+        "weights": { "type": "array", "items": { "type": "integer", "minimum": 0, "maximum": 255 } }
+      }
+    },
+    "cliffs": {
+      "type": "object", "additionalProperties": false,
+      "required": ["style_id", "levels", "ramps"],
+      "properties": {
+        "style_id": { "$ref": "#/$defs/id" },
+        "levels": { "type": "array", "items": { "type": "integer", "minimum": -16, "maximum": 16 } },
+        "ramps": { "type": "array", "items": { "$ref": "#/$defs/ramp" } }
+      }
+    },
+    "water": {
+      "type": "object", "additionalProperties": false, "required": ["enabled", "level_cm"],
+      "properties": { "enabled": { "type": "boolean" }, "level_cm": { "type": "integer", "minimum": -32768, "maximum": 32767 } }
+    },
+    "pathing": {
+      "type": "object", "additionalProperties": false, "required": ["movement", "placement"],
+      "properties": {
+        "movement": { "type": "array", "items": { "enum": ["inherit", "blocked"] } },
+        "placement": { "type": "array", "items": { "enum": ["inherit", "blocked"] } }
+      }
+    },
+    "environment": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sun_azimuth_deg", "sun_elevation_deg", "sun_color_linear", "sun_energy", "ambient_color_linear", "ambient_energy", "fog_enabled", "fog_color_linear", "fog_density", "fog_start_m", "fog_end_m", "sky_id"],
+      "properties": {
+        "sun_azimuth_deg": { "type": "number", "minimum": -360, "maximum": 360 }, "sun_elevation_deg": { "type": "number", "minimum": -90, "maximum": 90 },
+        "sun_color_linear": { "$ref": "#/$defs/color" }, "sun_energy": { "type": "number", "minimum": 0, "maximum": 16 },
+        "ambient_color_linear": { "$ref": "#/$defs/color" }, "ambient_energy": { "type": "number", "minimum": 0, "maximum": 16 },
+        "fog_enabled": { "type": "boolean" }, "fog_color_linear": { "$ref": "#/$defs/color" },
+        "fog_density": { "type": "number", "minimum": 0, "maximum": 1 }, "fog_start_m": { "type": "number", "minimum": 0 }, "fog_end_m": { "type": "number", "exclusiveMinimum": 0 },
+        "sky_id": { "$ref": "#/$defs/id" }
+      }
+    },
+    "attachments": { "type": "array", "items": { "$ref": "#/$defs/attachment" } }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+    "color": { "type": "array", "prefixItems": [{"type":"number","minimum":0,"maximum":1},{"type":"number","minimum":0,"maximum":1},{"type":"number","minimum":0,"maximum":1}], "items": false },
+    "ramp": { "type": "object", "additionalProperties": false, "required": ["x", "z", "direction"], "properties": { "x": {"type":"integer","minimum":0}, "z": {"type":"integer","minimum":0}, "direction": {"enum":["north","east","south","west"]} } },
+    "attachment": { "type": "object", "additionalProperties": false, "required": ["target_type", "target_id", "mode", "offset_cm"], "properties": { "target_type": {"enum":["object","spawn"]}, "target_id": {"$ref":"#/$defs/id"}, "mode": {"enum":["absolute","grounded"]}, "offset_cm": {"type":"integer","minimum":-32768,"maximum":32767} } }
+  }
+}
