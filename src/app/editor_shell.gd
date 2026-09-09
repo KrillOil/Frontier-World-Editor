@@ -6,6 +6,7 @@ const TerrainSurfacePainterScript = preload("res://src/domain/terrain_surface_pa
 const TerrainCliffWaterScript = preload("res://src/domain/terrain_cliff_water.gd")
 const TerrainPathingScript = preload("res://src/domain/terrain_pathing.gd")
 const TerrainEnvironmentScript = preload("res://src/domain/terrain_environment.gd")
+const TerrainWorkflowScript = preload("res://src/domain/terrain_workflow.gd")
 const DEFAULT_PACKAGE := "res://worlds/crimsdale"
 
 var package = WorldPackageScript.new()
@@ -70,6 +71,12 @@ var environment_colors:Dictionary={}
 var environment_sky:OptionButton
 var environment_fog_enabled:CheckBox
 var environment_preview_enabled:=true
+var workflow_dialog: Window
+var workflow_fields: Dictionary = {}
+var workflow_domains: Dictionary = {}
+var workflow_mode: OptionButton
+var workflow
+var terrain_clipboard: Dictionary = {}
 var pending_after_save: Callable
 var definition_list: ItemList
 var definition_id_field: LineEdit
@@ -99,6 +106,7 @@ func _ready() -> void:
 	_build_cliff_water_editor()
 	_build_pathing_editor()
 	_build_environment_editor()
+	_build_workflow_editor()
 	_build_object_editor()
 	_build_terrain_editor()
 	_build_package_dialogs()
@@ -130,6 +138,7 @@ func _build_toolbar() -> void:
 	_add_button(bar, "Cliffs & Water", show_cliff_water_editor)
 	_add_button(bar, "Pathing", show_pathing_editor)
 	_add_button(bar, "Environment", show_environment_editor)
+	_add_button(bar, "Workflow", show_workflow_editor)
 	bar.add_spacer(false)
 	_add_button(bar, "Undo", perform_undo)
 	_add_button(bar, "Redo", perform_redo)
@@ -681,6 +690,81 @@ func apply_environment_changes()->void:
 
 func toggle_environment_preview()->void:
 	environment_preview_enabled=not environment_preview_enabled;apply_environment_preview();status("Accurate environment preview %s"%("on" if environment_preview_enabled else "off"))
+
+
+func _build_workflow_editor() -> void:
+	workflow_dialog = Window.new()
+	workflow_dialog.title = "Terrain Workflow"
+	workflow_dialog.size = Vector2i(520, 620)
+	workflow_dialog.close_requested.connect(workflow_dialog.hide)
+	add_child(workflow_dialog)
+	var form := VBoxContainer.new()
+	form.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	form.offset_left = 18; form.offset_top = 18; form.offset_right = -18; form.offset_bottom = -18
+	workflow_dialog.add_child(form)
+	var help := Label.new()
+	help.text = "Selection and paste use cell coordinates with a north-west anchor. Shortcuts: Ctrl+Z/Y undo/redo, Ctrl+C/V copy/paste, F samples, M recenters. Shortcuts pause while editing text."
+	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	form.add_child(help)
+	for spec in [["x", "Selection X", 0, 511], ["z", "Selection Z", 0, 511], ["width", "Width", 1, 512], ["depth", "Depth", 1, 512], ["paste_x", "Paste X", 0, 511], ["paste_z", "Paste Z", 0, 511], ["grid_snap", "Grid snap (cells)", 1, 32], ["height_snap", "Height snap (cm)", 1, 1000]]:
+		workflow_fields[spec[0]] = _hud_spin(form, spec[1], spec[2], spec[3], 1, 1)
+	workflow_fields.width.value = 1; workflow_fields.depth.value = 1
+	workflow_fields.grid_snap.value = 1; workflow_fields.height_snap.value = 25
+	var domains_label := Label.new(); domains_label.text = "Clipboard domains"; form.add_child(domains_label)
+	for domain in ["height", "surface", "cliff", "water", "pathing"]:
+		var toggle := CheckBox.new(); toggle.text = domain.capitalize(); toggle.button_pressed = true; form.add_child(toggle); workflow_domains[domain] = toggle
+	workflow_mode = OptionButton.new(); workflow_mode.add_item("Replace enabled values"); workflow_mode.add_item("Merge non-default cliff/pathing values"); form.add_child(workflow_mode)
+	_add_button(form, "Select Area", _workflow_select)
+	_add_button(form, "Copy Selection  Ctrl+C", _workflow_copy)
+	_add_button(form, "Preview / Paste  Ctrl+V", _workflow_paste)
+	_add_button(form, "Sample NW Cell  F", _workflow_sample)
+	_add_button(form, "Recenter Minimap  M", _workflow_recenter)
+
+
+func show_workflow_editor() -> void:
+	if package.terrain == null: show_blocking_error("Create terrain before using terrain workflow tools."); return
+	workflow = TerrainWorkflowScript.new(package.terrain)
+	workflow_dialog.popup_centered()
+	status("Terrain workflow ready — selection, clipboard, snapping, sampling, minimap, and shortcuts")
+
+
+func _workflow_select() -> void:
+	if workflow == null: workflow = TerrainWorkflowScript.new(package.terrain)
+	workflow.grid_snap_cells = int(workflow_fields.grid_snap.value); workflow.height_snap_cm = int(workflow_fields.height_snap.value)
+	var first := Vector2i(int(workflow_fields.x.value), int(workflow_fields.z.value))
+	var last := first + Vector2i(int(workflow_fields.width.value), int(workflow_fields.depth.value)) - Vector2i.ONE
+	var rect: Rect2i = workflow.select_cells(first, last)
+	status("Selected %d × %d cells at %d, %d | snap %d cells / %d cm" % [rect.size.x, rect.size.y, rect.position.x, rect.position.y, workflow.grid_snap_cells, workflow.height_snap_cm])
+
+
+func _workflow_copy() -> void:
+	_workflow_select()
+	var domains := {}
+	for key in workflow_domains: domains[key] = workflow_domains[key].button_pressed
+	terrain_clipboard = workflow.copy_selection(domains)
+	status("Copied %d terrain cells (clipboard v1, north-west anchor)" % workflow.selection.get_area())
+
+
+func _workflow_paste() -> void:
+	if terrain_clipboard.is_empty(): status("Copy a terrain selection before pasting"); return
+	var destination := Vector2i(int(workflow_fields.paste_x.value), int(workflow_fields.paste_z.value))
+	var preview: Dictionary = workflow.preview_paste(terrain_clipboard, destination)
+	if not preview.get("ok", false): status(preview.get("error", "Paste is unavailable")); return
+	if workflow.paste(terrain_clipboard, destination, "replace" if workflow_mode.selected == 0 else "merge"):
+		refresh_all(); status("Pasted atomically; %d cell(s) clipped | Undo available" % preview.clipped_cells)
+	else: status(workflow.last_error)
+
+
+func _workflow_sample() -> void:
+	_workflow_select()
+	var sample: Dictionary = workflow.sample(workflow.selection.position)
+	status("Sample %s: %d cm, cliff %d, movement %s, placement %s" % [sample.cell, sample.height_cm, sample.cliff_level, sample.movement, sample.placement])
+
+
+func _workflow_recenter() -> void:
+	if workflow == null: workflow = TerrainWorkflowScript.new(package.terrain)
+	orbit_target = workflow.minimap_recenter(Vector2(0.5, 0.5)); update_camera()
+	status("Minimap recentered at %0.1f, %0.1f" % [orbit_target.x, orbit_target.z])
 
 
 func apply_environment_preview()->void:
@@ -1641,6 +1725,26 @@ func discard_then_continue(action: StringName) -> void:
 	refresh_all()
 	if pending_after_save.is_valid():
 		pending_after_save.call()
+
+
+func _unhandled_key_input(event: InputEvent) -> void:
+	if not event is InputEventKey or not event.pressed or event.echo:
+		return
+	var focus := get_viewport().gui_get_focus_owner()
+	if focus is LineEdit or focus is TextEdit or focus is SpinBox:
+		return
+	if event.ctrl_pressed and event.keycode == KEY_Z:
+		perform_undo(); get_viewport().set_input_as_handled()
+	elif event.ctrl_pressed and event.keycode == KEY_Y:
+		perform_redo(); get_viewport().set_input_as_handled()
+	elif package.terrain != null and event.ctrl_pressed and event.keycode == KEY_C:
+		if workflow_dialog.visible: _workflow_copy(); get_viewport().set_input_as_handled()
+	elif package.terrain != null and event.ctrl_pressed and event.keycode == KEY_V:
+		if workflow_dialog.visible: _workflow_paste(); get_viewport().set_input_as_handled()
+	elif package.terrain != null and workflow_dialog.visible and event.keycode == KEY_F:
+		_workflow_sample(); get_viewport().set_input_as_handled()
+	elif package.terrain != null and workflow_dialog.visible and event.keycode == KEY_M:
+		_workflow_recenter(); get_viewport().set_input_as_handled()
 
 
 func _notification(what: int) -> void:
