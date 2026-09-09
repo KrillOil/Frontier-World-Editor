@@ -12,7 +12,34 @@
       "display_name": "Crimsdale Fountain",
       "category": "landmark",
       "scene_path": "res://content/crimsdale/landmarks/fountain.tscn"
+    },
+    {
+      "definition_id": "unit_crimsdale_guard",
+      "display_name": "Crimsdale Guard",
+      "category": "unit",
+      "scene_path": "res://content/crimsdale/units/guard.tscn",
+      "owner": "player",
+      "max_health": 120.0,
+      "movement_speed": 4.5,
+      "selection_radius": 0.8,
+      "attack_damage": 14.0,
+      "attack_interval": 1.0,
+      "attack_range": 1.6,
+      "acquisition_range": 7.0
+    },
+    {
+      "definition_id": "unit_crimsdale_raider",
+      "display_name": "Crimsdale Raider",
+      "category": "unit",
+      "scene_path": "res://content/crimsdale/units/raider.tscn",
+      "owner": "hostile",
+      "max_health": 85.0,
+      "movement_speed": 3.8,
+      "selection_radius": 0.8,
+      "attack_damage": 9.0,
+      "attack_interval": 1.2,
+      "attack_range": 1.5,
+      "acquisition_range": 8.0
     }
   ]
 }
-

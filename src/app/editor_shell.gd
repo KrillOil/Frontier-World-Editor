@@ -26,6 +26,8 @@ var definition_id_field: LineEdit
 var definition_name: LineEdit
 var definition_category: OptionButton
 var definition_scene: LineEdit
+var definition_owner: OptionButton
+var unit_fields: Dictionary = {}
 var mouse_position := Vector2.ZERO
 var creating_definition := false
 var moving_instance := false
@@ -479,6 +481,16 @@ func _build_object_editor() -> void:
 		definition_category.add_item(category)
 	form.add_child(definition_category)
 	definition_scene = _add_field(form, "Scene path")
+	var unit_heading := Label.new()
+	unit_heading.text = "UNIT GAMEPLAY"
+	form.add_child(unit_heading)
+	definition_owner = OptionButton.new()
+	for owner in WorldPackageScript.OWNERS:
+		definition_owner.add_item(owner)
+	form.add_child(definition_owner)
+	for field in WorldPackageScript.UNIT_FIELDS:
+		if field != "owner":
+			unit_fields[field] = _add_field(form, field.replace("_", " ").capitalize())
 	_add_button(form, "Apply Changes", apply_definition_changes)
 	_add_button(form, "New Definition", prepare_new_definition)
 	_add_button(form, "Duplicate", prepare_duplicate_definition)
@@ -540,6 +552,7 @@ func load_definition_form(index: int) -> void:
 	definition_name.text = definition.display_name
 	definition_category.select(WorldPackageScript.CATEGORIES.find(definition.category))
 	definition_scene.text = definition.scene_path
+	_load_unit_fields(definition)
 
 
 func apply_definition_changes() -> void:
@@ -548,7 +561,10 @@ func apply_definition_changes() -> void:
 		status("Select a definition to edit")
 		return
 	var definition: Dictionary = package.find_definition(definition_list.get_item_metadata(selected[0]))
-	package.update_definition(definition.definition_id, {"display_name": definition_name.text, "category": definition_category.get_item_text(definition_category.selected), "scene_path": definition_scene.text})
+	var changes := {"display_name": definition_name.text, "category": definition_category.get_item_text(definition_category.selected), "scene_path": definition_scene.text}
+	if changes.category == "unit":
+		changes.merge(_unit_form_data())
+	package.update_definition(definition.definition_id, changes)
 	refresh_all()
 
 
@@ -563,6 +579,7 @@ func prepare_duplicate_definition() -> void:
 	definition_name.text = source.display_name + " Copy"
 	definition_category.select(WorldPackageScript.CATEGORIES.find(source.category))
 	definition_scene.text = source.scene_path
+	_load_unit_fields(source)
 	status("Review the duplicate ID, then choose Create Definition")
 
 
@@ -574,6 +591,7 @@ func prepare_new_definition() -> void:
 	definition_name.text = ""
 	definition_category.select(1)
 	definition_scene.text = ""
+	_load_unit_fields({})
 	status("Enter all definition fields, then choose Create Definition")
 
 
@@ -581,12 +599,15 @@ func create_definition_from_form() -> void:
 	if not creating_definition:
 		status("Choose New Definition or Duplicate first")
 		return
-	var created := package.create_definition({
+	var definition := {
 		"definition_id": definition_id_field.text,
 		"display_name": definition_name.text,
 		"category": definition_category.get_item_text(definition_category.selected),
 		"scene_path": definition_scene.text,
-	})
+	}
+	if definition.category == "unit":
+		definition.merge(_unit_form_data())
+	var created := package.create_definition(definition)
 	if not created:
 		show_errors()
 		return
@@ -594,6 +615,20 @@ func create_definition_from_form() -> void:
 	definition_id_field.editable = false
 	refresh_all()
 	status("Created definition '%s'" % definition_id_field.text)
+
+
+func _load_unit_fields(definition: Dictionary) -> void:
+	definition_owner.select(maxi(0, WorldPackageScript.OWNERS.find(definition.get("owner", "player"))))
+	var defaults := {"max_health": 100.0, "movement_speed": 4.0, "selection_radius": 0.8, "attack_damage": 10.0, "attack_interval": 1.0, "attack_range": 1.5, "acquisition_range": 7.0}
+	for field in unit_fields:
+		unit_fields[field].text = str(definition.get(field, defaults[field]))
+
+
+func _unit_form_data() -> Dictionary:
+	var data := {"owner": definition_owner.get_item_text(definition_owner.selected)}
+	for field in unit_fields:
+		data[field] = float(unit_fields[field].text)
+	return data
 
 
 func delete_definition() -> void:
