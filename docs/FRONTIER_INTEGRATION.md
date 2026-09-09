@@ -8,6 +8,8 @@ Frontier World Editor -> authored world package -> Frontier runtime
 
 The repositories remain independent. Integration occurs through a versioned package and an explicit launch command, not shared scenes, source folders, or editor-only runtime behavior.
 
+Terrain preflight derives a SHA-256 cache identity from canonical terrain bytes, format and algorithm versions, portable resource-catalog hashes, and runtime build settings. Frontier remains responsible for mesh, material, collision, navigation, water, environment, grounding, and unit-movement parity.
+
 ## Test World launch contract
 
 ```text

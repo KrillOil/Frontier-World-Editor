@@ -27,9 +27,9 @@ GitHub issues are the authoritative feature and acceptance-criteria inventory. E
 - Terrain operations participate in the existing dirty-state, undo/redo, deterministic save, reopen, and Test World workflow.
 - Invalid or unsupported terrain data is rejected explicitly; it is never silently repaired or discarded.
 
-## Review gates
+## Delivery status
 
-Status: **not ready for execution** following the 10 September 2026 Astra review. TER-I01 remains uncommissioned.
+The contract gate is resolved and TER-I01–TER-I07 are accepted. TER-I08 is complete on the editor side and closes only after the paired Frontier Test World consumer passes the shared conformance suite.
 
 Before implementation, review the proposed issues for:
 
@@ -62,7 +62,7 @@ The parent GitHub capability cannot leave this gate until it links accepted:
 7. Complete cross-domain workflow, clipboard, minimap, and accessibility.
 8. Complete migrations, crash recovery, runtime caches, and Crimsdale Test World conformance.
 
-Do not implement until the review findings are resolved into issue acceptance criteria and the first increment is explicitly commissioned.
+The accepted contracts and GitHub issues now govern changes; do not add terrain fields or broaden runtime coupling outside a commissioned issue.
 
 ## Workflow contract
 
