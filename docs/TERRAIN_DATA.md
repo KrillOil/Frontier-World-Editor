@@ -75,6 +75,12 @@ Pathing uses the terrain cell grid and keeps movement separate from building pla
 
 Supported circular clearances are 0.5 m, 1 m, and 2 m measured from cell centers; bounds count as blocked. Connectivity flood-fills cardinally from `player_start`: unreachable spawns are errors and remaining isolated traversable cells are warnings. Results contain stable reason codes, severity, and exact cells. Overlay rebuilds publish atomically; cancellation retains the last valid result and marks changed data stale until rebuilt.
 
+### Environment parity
+
+Sun azimuth is clockwise from north in degrees and elevation is degrees above the horizon. Sun, ambient, and fog colors are linear RGB; energies are 0–16. Depth fog uses density 0–1 and metre distances with `0 <= start < end`; disabling fog preserves its values. Sky identity is a portable catalog ID. Missing IDs remain inspectable but block save and Test World.
+
+The editor and Frontier apply identical authored values using Godot 4.7.1 Forward+ settings. Automated parity compares numeric light/environment probes to `1e-5`; stable GPU pixel comparison is not claimed because tone mapping, GPU precision, display calibration, and operating-system color management can differ. Preview toggling is session-only and never changes authored data.
+
 Resize, reset, paste, layer lifecycle, pathing rebuild, and runtime build are previewed transactions. They report changed/cropped samples and affected objects/spawns, commit all canonical files or none, and respond to cancellation within 250 ms.
 
 ## Object and spawn grounding

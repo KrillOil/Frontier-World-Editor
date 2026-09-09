@@ -5,6 +5,7 @@ const TerrainSculptorScript = preload("res://src/domain/terrain_sculptor.gd")
 const TerrainSurfacePainterScript = preload("res://src/domain/terrain_surface_painter.gd")
 const TerrainCliffWaterScript = preload("res://src/domain/terrain_cliff_water.gd")
 const TerrainPathingScript = preload("res://src/domain/terrain_pathing.gd")
+const TerrainEnvironmentScript = preload("res://src/domain/terrain_environment.gd")
 const DEFAULT_PACKAGE := "res://worlds/crimsdale"
 
 var package = WorldPackageScript.new()
@@ -63,6 +64,12 @@ var pathing_clearance: OptionButton
 var pathing_enabled:=false
 var pathing_overlay_visible:=false
 var pathing
+var environment_dialog:Window
+var environment_fields:Dictionary={}
+var environment_colors:Dictionary={}
+var environment_sky:OptionButton
+var environment_fog_enabled:CheckBox
+var environment_preview_enabled:=true
 var pending_after_save: Callable
 var definition_list: ItemList
 var definition_id_field: LineEdit
@@ -91,6 +98,7 @@ func _ready() -> void:
 	_build_surface_editor()
 	_build_cliff_water_editor()
 	_build_pathing_editor()
+	_build_environment_editor()
 	_build_object_editor()
 	_build_terrain_editor()
 	_build_package_dialogs()
@@ -121,6 +129,7 @@ func _build_toolbar() -> void:
 	_add_button(bar, "Surfaces", show_surface_editor)
 	_add_button(bar, "Cliffs & Water", show_cliff_water_editor)
 	_add_button(bar, "Pathing", show_pathing_editor)
+	_add_button(bar, "Environment", show_environment_editor)
 	bar.add_spacer(false)
 	_add_button(bar, "Undo", perform_undo)
 	_add_button(bar, "Redo", perform_redo)
@@ -167,6 +176,7 @@ func _build_viewport() -> void:
 		update_camera()
 		return
 	var environment := WorldEnvironment.new()
+	environment.name = "EnvironmentPreview"
 	var env := Environment.new()
 	env.background_mode = Environment.BG_COLOR
 	env.background_color = Color("222936")
@@ -176,6 +186,7 @@ func _build_viewport() -> void:
 	environment.environment = env
 	world_root.add_child(environment)
 	var light := DirectionalLight3D.new()
+	light.name = "SunPreview"
 	light.rotation_degrees = Vector3(-55, -35, 0)
 	light.shadow_enabled = true
 	world_root.add_child(light)
@@ -630,12 +641,71 @@ func refresh_pathing_overlay()->void:
 	var material:=StandardMaterial3D.new();material.transparency=BaseMaterial3D.TRANSPARENCY_ALPHA;material.vertex_color_use_as_albedo=true;material.shading_mode=BaseMaterial3D.SHADING_MODE_UNSHADED;preview.material_override=material;world_root.add_child(preview)
 
 
+func _build_environment_editor()->void:
+	environment_dialog=Window.new();environment_dialog.title="World Environment";environment_dialog.size=Vector2i(620,650);environment_dialog.close_requested.connect(environment_dialog.hide);add_child(environment_dialog)
+	var scroll:=ScrollContainer.new();scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT);scroll.offset_left=18;scroll.offset_top=18;scroll.offset_right=-18;scroll.offset_bottom=-18;environment_dialog.add_child(scroll)
+	var form:=VBoxContainer.new();form.size_flags_horizontal=Control.SIZE_EXPAND_FILL;scroll.add_child(form)
+	var help:=Label.new();help.text="Godot 4.7.1 parity preview uses identical authored values. Tone mapping, GPU precision, and display calibration may still differ from the target Windows display.";help.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;form.add_child(help)
+	for spec in [["sun_azimuth_deg","Sun azimuth °",-360,360,1],["sun_elevation_deg","Sun elevation °",-90,90,1],["sun_energy","Sun intensity",0,16,0.05],["ambient_energy","Ambient intensity",0,16,0.05],["fog_density","Fog density",0,1,0.001],["fog_start_m","Fog start m",0,10000,1],["fog_end_m","Fog end m",0.01,10000,1]]:
+		environment_fields[spec[0]]=_hud_spin(form,spec[1],spec[2],spec[3],0,spec[4])
+	for item in [["sun_color_linear","Sun color (linear)"],["ambient_color_linear","Ambient color (linear)"],["fog_color_linear","Fog color (linear)"]]:
+		var label:=Label.new();label.text=item[1];form.add_child(label);var picker:=ColorPickerButton.new();picker.edit_alpha=false;form.add_child(picker);environment_colors[item[0]]=picker
+	environment_fog_enabled=CheckBox.new();environment_fog_enabled.text="Enable depth fog";form.add_child(environment_fog_enabled)
+	environment_sky=OptionButton.new();var catalog=JSON.parse_string(FileAccess.get_file_as_string("res://content/crimsdale/terrain_skies.json"))
+	for sky in catalog.get("skies",[]):environment_sky.add_item("%s — %s"%[sky.display_name,sky.sky_id]);environment_sky.set_item_metadata(environment_sky.item_count-1,sky.sky_id)
+	form.add_child(environment_sky)
+	_add_button(form,"Apply Environment",apply_environment_changes)
+	_add_button(form,"Toggle Accurate Preview",toggle_environment_preview)
+
+
+func show_environment_editor()->void:
+	if package.terrain==null:show_blocking_error("Create terrain before editing the environment.");return
+	var data:Dictionary=package.terrain.data.environment
+	for key in environment_fields:environment_fields[key].value=data[key]
+	for key in environment_colors:
+		var color:Array=data[key];environment_colors[key].color=Color(float(color[0]),float(color[1]),float(color[2]))
+	environment_fog_enabled.button_pressed=data.fog_enabled
+	for index in environment_sky.item_count:
+		if environment_sky.get_item_metadata(index)==data.sky_id:environment_sky.select(index)
+	environment_dialog.popup_centered()
+
+
+func apply_environment_changes()->void:
+	var values:Dictionary={"fog_enabled":environment_fog_enabled.button_pressed,"sky_id":environment_sky.get_item_metadata(environment_sky.selected)}
+	for key in environment_fields:values[key]=environment_fields[key].value
+	for key in environment_colors:
+		var color:Color=environment_colors[key].color;values[key]=[color.r,color.g,color.b]
+	if TerrainEnvironmentScript.new(package.terrain).apply(values):apply_environment_preview();refresh_all();status("Environment applied as one undoable change")
+	else:package.errors=package.terrain.errors;show_errors()
+
+
+func toggle_environment_preview()->void:
+	environment_preview_enabled=not environment_preview_enabled;apply_environment_preview();status("Accurate environment preview %s"%("on" if environment_preview_enabled else "off"))
+
+
+func apply_environment_preview()->void:
+	if DisplayServer.get_name()=="headless" or package.terrain==null:return
+	var world_environment:WorldEnvironment=world_root.get_node("EnvironmentPreview");var sun:DirectionalLight3D=world_root.get_node("SunPreview")
+	if not environment_preview_enabled:world_environment.visible=false;sun.visible=false;return
+	world_environment.visible=true;sun.visible=true
+	var probe:Dictionary=TerrainEnvironmentScript.new(package.terrain).parity_probe();var env:Environment=world_environment.environment
+	env.ambient_light_source=Environment.AMBIENT_SOURCE_COLOR;env.ambient_light_color=probe.ambient_color;env.ambient_light_energy=probe.ambient_energy
+	env.fog_enabled=probe.fog_enabled;env.fog_light_color=probe.fog_color;env.fog_density=probe.fog_density;env.fog_depth_begin=probe.fog_start_m;env.fog_depth_end=probe.fog_end_m
+	var sky_entry:Dictionary={}
+	var catalog=JSON.parse_string(FileAccess.get_file_as_string("res://content/crimsdale/terrain_skies.json"))
+	for item in catalog.get("skies",[]):
+		if item.sky_id==probe.sky_id:sky_entry=item
+	if not sky_entry.is_empty():env.background_color=Color(float(sky_entry.sky_color_linear[0]),float(sky_entry.sky_color_linear[1]),float(sky_entry.sky_color_linear[2]))
+	sun.rotation_degrees=probe.sun_rotation_degrees;sun.light_color=probe.sun_color;sun.light_energy=probe.sun_energy
+
+
 func refresh_all() -> void:
 	refresh_palette()
 	refresh_world()
 	refresh_inspector()
 	refresh_definition_list()
 	refresh_terrain_preview()
+	apply_environment_preview()
 	dirty_label.text = "Unsaved changes" if package.dirty or (package.terrain != null and package.terrain.dirty) else "Saved"
 
 
