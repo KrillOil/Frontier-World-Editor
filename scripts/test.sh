@@ -10,5 +10,6 @@ if [[ "$version" != 4.7.1.* ]]; then
   exit 1
 fi
 
-exec "$godot_bin" --headless --path "$project_root" --script res://tests/test_shell.gd
-
+"$godot_bin" --headless --path "$project_root" --script res://tests/test_shell.gd
+"$godot_bin" --headless --path "$project_root" --script res://tests/test_world_package.gd
+"$godot_bin" --headless --path "$project_root" --script res://tests/test_editor_integration.gd

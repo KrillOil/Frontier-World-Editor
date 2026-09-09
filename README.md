@@ -10,6 +10,7 @@ The editor owns reusable object definitions and map composition. Frontier consum
 - Creator: use issues and milestones to approve scope and verify outcomes.
 - Product boundaries: [`docs/SCOPE.md`](docs/SCOPE.md)
 - Complete first MVP: [`docs/MVP.md`](docs/MVP.md)
+- Review the current MVP: [`docs/REVIEW.md`](docs/REVIEW.md)
 - Authored data: [`docs/AUTHORING_MODEL.md`](docs/AUTHORING_MODEL.md)
 - Frontier handoff: [`docs/FRONTIER_INTEGRATION.md`](docs/FRONTIER_INTEGRATION.md)
 
@@ -36,3 +37,17 @@ GODOT_BIN=/path/to/godot ./scripts/run.sh
 ```
 
 The test command verifies the exact Godot version and runs the shell checks headlessly.
+
+## MVP controls
+
+- Middle-drag: orbit camera
+- Shift + middle-drag: pan camera
+- Mouse wheel: zoom
+- Left click: select or place
+- `Q` / `E`: rotate placement preview
+- `G`: move the selected instance, then click its destination
+- `Escape`: cancel move or placement
+- Inspector: precise position and yaw editing
+- Object Editor: create, duplicate, edit, and safely delete definitions
+
+`Test World` uses `FRONTIER_TEST_COMMAND`. The command may contain `{package}` and `{spawn}` placeholders; the editor saves before launch.

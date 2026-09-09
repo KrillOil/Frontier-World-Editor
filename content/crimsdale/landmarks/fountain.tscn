@@ -1,0 +1,36 @@
+[gd_scene load_steps=5 format=3]
+
+[sub_resource type="StandardMaterial3D" id="StoneMaterial"]
+albedo_color = Color(0.47, 0.55, 0.61, 1)
+roughness = 0.75
+
+[sub_resource type="CylinderMesh" id="Basin"]
+material = SubResource("StoneMaterial")
+top_radius = 1.4
+bottom_radius = 1.55
+height = 0.5
+
+[sub_resource type="CylinderMesh" id="Column"]
+material = SubResource("StoneMaterial")
+top_radius = 0.22
+bottom_radius = 0.34
+height = 1.7
+
+[sub_resource type="SphereMesh" id="Crown"]
+material = SubResource("StoneMaterial")
+radius = 0.38
+height = 0.76
+
+[node name="CrimsdaleFountain" type="Node3D"]
+
+[node name="Basin" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.25, 0)
+mesh = SubResource("Basin")
+
+[node name="Column" type="MeshInstance3D" parent="."]
+position = Vector3(0, 1.1, 0)
+mesh = SubResource("Column")
+
+[node name="Crown" type="MeshInstance3D" parent="."]
+position = Vector3(0, 2.05, 0)
+mesh = SubResource("Crown")

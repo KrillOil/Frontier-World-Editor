@@ -1,0 +1,26 @@
+name: Verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  godot-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Godot 4.7.1
+        run: |
+          curl --fail --location --output godot.zip \
+            https://github.com/godotengine/godot-builds/releases/download/4.7.1-stable/Godot_v4.7.1-stable_linux.x86_64.zip
+          python3 -m zipfile -e godot.zip .godot-bin
+          chmod +x .godot-bin/Godot_v4.7.1-stable_linux.x86_64
+      - name: Run headless checks
+        env:
+          GODOT_BIN: ${{ github.workspace }}/.godot-bin/Godot_v4.7.1-stable_linux.x86_64
+        run: ./scripts/test.sh
+
