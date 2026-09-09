@@ -29,6 +29,8 @@ GitHub issues are the authoritative feature and acceptance-criteria inventory. E
 
 ## Review gates
 
+Status: **not ready for execution** following the 10 September 2026 Astra review. TER-I01 remains uncommissioned.
+
 Before implementation, review the proposed issues for:
 
 - canonical height, surface, cliff, water, pathing, and environment representation;
@@ -37,5 +39,27 @@ Before implementation, review the proposed issues for:
 - undo memory and performance budgets;
 - runtime mesh seams, collision, navigation rebuilds, and Test World latency;
 - which operations must be non-destructive and which require confirmation.
+
+The parent GitHub capability cannot leave this gate until it links accepted:
+
+- canonical terrain schema and package layout;
+- coordinate/topology and authored-versus-derived decision tables;
+- v1 compatibility and migration behavior;
+- delta-history design with a numeric memory budget;
+- minimum, Crimsdale-target, and maximum fixtures with numeric performance budgets;
+- object and spawn grounding policy;
+- paired Frontier runtime issues and compatible revision;
+- a tiny golden package that produces matching height and pathing probes in both repositories.
+
+## Reviewed delivery order
+
+1. Close the capability contract gate without implementing terrain tools.
+2. Deliver terrain document, incremental persistence, and delta-history foundations.
+3. Prove a tiny Frontier height/surface mesh consumer before brush formats harden.
+4. Deliver sculpting and surfaces against the shared grid and brush contracts.
+5. Deliver cliffs/water, then pathing; verify Frontier conformance after each domain.
+6. Deliver environment authoring after its portable-resource and parity contract.
+7. Complete cross-domain workflow, clipboard, minimap, and accessibility.
+8. Complete migrations, crash recovery, runtime caches, and Crimsdale Test World conformance.
 
 Do not implement until the review findings are resolved into issue acceptance criteria and the first increment is explicitly commissioned.
