@@ -14,6 +14,13 @@ func _init() -> void:
 	_check(package.load_from_directory(temporary_package), "Crimsdale fixture loads")
 	_check(package.validate().is_empty(), "Crimsdale fixture validates")
 	_check(package.resource_errors().is_empty(), "Crimsdale preview resources resolve")
+	var guard: Dictionary = package.find_definition("unit_crimsdale_guard")
+	_check(guard.owner == "player" and guard.attack_damage == 14.0, "Unit gameplay definition loads")
+	var invalid_guard := guard.duplicate(true)
+	invalid_guard.max_health = 0.0
+	var invalid_definitions: Array[Dictionary] = package.definitions.duplicate(true)
+	invalid_definitions[invalid_definitions.find(guard)] = invalid_guard
+	_check(package.validate_data({"format_version": 1, "definitions": invalid_definitions}, package.world).any(func(message): return "max_health" in message), "Invalid unit health is rejected")
 
 	var duplicate_definitions := {"format_version": 1, "definitions": package.definitions.duplicate(true)}
 	duplicate_definitions.definitions.append(package.definitions[0].duplicate(true))

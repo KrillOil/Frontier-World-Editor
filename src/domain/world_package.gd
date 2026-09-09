@@ -4,6 +4,8 @@ extends RefCounted
 const FORMAT_VERSION := 1
 const CATEGORIES := ["building", "prop", "landmark", "unit"]
 const ID_PATTERN := "^[a-z][a-z0-9_]*$"
+const UNIT_FIELDS := ["owner", "max_health", "movement_speed", "selection_radius", "attack_damage", "attack_interval", "attack_range", "acquisition_range"]
+const OWNERS := ["player", "ally", "neutral", "hostile"]
 
 var package_path := ""
 var definitions: Array[Dictionary] = []
@@ -85,7 +87,10 @@ func validate_data(definition_document: Variant, world_document: Variant) -> Arr
 		if not definition is Dictionary:
 			failures.append("%s must be an object" % context)
 			continue
-		_validate_keys(definition, ["definition_id", "display_name", "category", "scene_path"], context, failures)
+		var allowed_fields := ["definition_id", "display_name", "category", "scene_path"]
+		if definition.get("category") == "unit":
+			allowed_fields.append_array(UNIT_FIELDS)
+		_validate_keys(definition, allowed_fields, context, failures)
 		var definition_id: String = definition.get("definition_id", "")
 		if not _valid_id(definition_id):
 			failures.append("%s.definition_id is invalid" % context)
@@ -99,6 +104,8 @@ func validate_data(definition_document: Variant, world_document: Variant) -> Arr
 			failures.append("%s.category is unsupported" % context)
 		if not definition.get("scene_path") is String or definition.get("scene_path", "").is_empty():
 			failures.append("%s.scene_path is required" % context)
+		if definition.get("category") == "unit":
+			_validate_unit_definition(definition, context, failures)
 
 	var instance_ids := {}
 	for index in world_document.objects.size():
@@ -168,10 +175,32 @@ func update_definition(definition_id: String, changes: Dictionary) -> bool:
 		errors = ["Unknown definition '%s'" % definition_id]
 		return false
 	_snapshot()
-	for key in ["display_name", "category", "scene_path"]:
+	for key in ["display_name", "category", "scene_path"] + UNIT_FIELDS:
 		if changes.has(key):
 			definition[key] = changes[key]
+	for key in UNIT_FIELDS:
+		if definition.get("category") != "unit":
+			definition.erase(key)
 	return _accept_change()
+
+
+func _validate_unit_definition(definition: Dictionary, context: String, failures: Array[String]) -> void:
+	for field in UNIT_FIELDS:
+		if not definition.has(field):
+			failures.append("%s: missing required unit field '%s'" % [context, field])
+	if definition.get("owner") not in OWNERS:
+		failures.append("%s.owner must be player, ally, neutral, or hostile" % context)
+	for field in ["max_health", "movement_speed", "selection_radius", "attack_interval", "attack_range", "acquisition_range"]:
+		var value: Variant = definition.get(field)
+		if (not value is int and not value is float) or float(value) <= 0.0:
+			failures.append("%s.%s must be greater than zero" % [context, field])
+	var damage: Variant = definition.get("attack_damage")
+	if (not damage is int and not damage is float) or float(damage) < 0.0:
+		failures.append("%s.attack_damage must be zero or greater" % context)
+	if definition.get("attack_range") is int or definition.get("attack_range") is float:
+		if definition.get("acquisition_range") is int or definition.get("acquisition_range") is float:
+			if float(definition.acquisition_range) < float(definition.attack_range):
+				failures.append("%s.acquisition_range must be at least attack_range" % context)
 
 
 func delete_definition(definition_id: String) -> bool:

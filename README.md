@@ -12,6 +12,7 @@ The editor owns reusable object definitions and map composition. Frontier consum
 - Complete first MVP: [`docs/MVP.md`](docs/MVP.md)
 - Review the current MVP: [`docs/REVIEW.md`](docs/REVIEW.md)
 - Authored data: [`docs/AUTHORING_MODEL.md`](docs/AUTHORING_MODEL.md)
+- Playable units: [`docs/PLAYABLE_UNITS.md`](docs/PLAYABLE_UNITS.md)
 - Frontier handoff: [`docs/FRONTIER_INTEGRATION.md`](docs/FRONTIER_INTEGRATION.md)
 
 Implementation is proceeding through the accepted GitHub milestones, beginning with project foundation.
@@ -49,5 +50,6 @@ The test command verifies the exact Godot version and runs the shell checks head
 - `Escape`: cancel move or placement
 - Inspector: precise position and yaw editing
 - Object Editor: create, duplicate, edit, and safely delete definitions
+- Unit definitions: author ownership, health, movement, selection, and basic combat values
 
 `Test World` uses `FRONTIER_EXECUTABLE` and the accepted `--world-package <path> --spawn player_start` contract. Set `FRONTIER_PROJECT_PATH` as well when the executable is Godot 4.7.1 and Frontier is being run from source.

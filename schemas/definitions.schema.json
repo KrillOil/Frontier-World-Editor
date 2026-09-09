@@ -17,8 +17,18 @@
           "definition_id": { "$ref": "#/$defs/id" },
           "display_name": { "type": "string", "minLength": 1 },
           "category": { "enum": ["building", "prop", "landmark", "unit"] },
-          "scene_path": { "type": "string", "minLength": 1 }
-        }
+          "scene_path": { "type": "string", "minLength": 1 },
+          "owner": { "enum": ["player", "ally", "neutral", "hostile"] },
+          "max_health": { "type": "number", "exclusiveMinimum": 0 },
+          "movement_speed": { "type": "number", "exclusiveMinimum": 0 },
+          "selection_radius": { "type": "number", "exclusiveMinimum": 0 },
+          "attack_damage": { "type": "number", "minimum": 0 },
+          "attack_interval": { "type": "number", "exclusiveMinimum": 0 },
+          "attack_range": { "type": "number", "exclusiveMinimum": 0 },
+          "acquisition_range": { "type": "number", "exclusiveMinimum": 0 }
+        },
+        "if": { "properties": { "category": { "const": "unit" } }, "required": ["category"] },
+        "then": { "required": ["owner", "max_health", "movement_speed", "selection_radius", "attack_damage", "attack_interval", "attack_range", "acquisition_range"] }
       }
     }
   },
@@ -26,4 +36,3 @@
     "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" }
   }
 }
-

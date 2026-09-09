@@ -17,7 +17,11 @@ func run() -> void:
 	_check(editor.package.world.get("world_id") == "crimsdale", "Editor opens Crimsdale")
 	_check(editor.world_root.get_node_or_null("crimsdale_fountain_001") != null, "Fountain preview is created")
 	_check(editor.world_root.get_node_or_null("crimsdale_house_001") != null, "House preview is created")
-	_check(editor.definition_list.item_count == 2, "Object Editor lists fixture definitions")
+	_check(editor.definition_list.item_count == 4, "Object Editor lists world and unit definitions")
+	var guard: Dictionary = editor.package.find_definition("unit_crimsdale_guard")
+	_check(guard.owner == "player" and guard.max_health == 120.0, "Crimsdale guard exposes authored gameplay fields")
+	editor.load_definition_form(2 if editor.definition_list.get_item_metadata(2) == "unit_crimsdale_guard" else 3)
+	_check(editor.unit_fields.max_health.text == "120.0", "Object Editor loads unit gameplay values")
 
 	editor.prepare_new_definition()
 	editor.definition_id_field.text = "prop_test_marker"

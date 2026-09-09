@@ -21,6 +21,9 @@ The editor opens Crimsdale automatically. It uses deliberately simple reference 
 7. Change its display name or category and apply. Return to the world and confirm the palette updated.
 8. Try deleting a definition used by placed instances. Confirm deletion is blocked with a reference count.
 9. Save, close, reopen, and confirm the authored state remains.
+10. Open each unit definition and review ownership, health, movement, selection, and combat values.
+11. Place additional guards or raiders, save, and launch Test World.
+12. In Frontier, left-click a blue guard, Shift-click to add another, right-click to move, and right-click a red raider to attack. Confirm hostile units pursue, health changes, and defeated units disappear.
 
 ## Test World
 
