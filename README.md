@@ -13,6 +13,7 @@ The editor owns reusable object definitions and map composition. Frontier consum
 - Review the current MVP: [`docs/REVIEW.md`](docs/REVIEW.md)
 - Authored data: [`docs/AUTHORING_MODEL.md`](docs/AUTHORING_MODEL.md)
 - Playable units: [`docs/PLAYABLE_UNITS.md`](docs/PLAYABLE_UNITS.md)
+- Terrain capability under review: [`docs/TERRAIN_CAPABILITY.md`](docs/TERRAIN_CAPABILITY.md)
 - Frontier handoff: [`docs/FRONTIER_INTEGRATION.md`](docs/FRONTIER_INTEGRATION.md)
 
 Implementation is proceeding through the accepted GitHub milestones, beginning with project foundation.
