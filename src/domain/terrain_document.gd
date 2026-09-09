@@ -240,7 +240,7 @@ func prospective_bounds(width_cells: int, depth_cells: int, anchor := "center") 
 	return Rect2(origin, Vector2(width_cells * cell_size, depth_cells * cell_size))
 
 
-func commit_tile_delta(label: String, changes: Array[Dictionary]) -> bool:
+func commit_tile_delta(label: String, changes: Array) -> bool:
 	var normalized: Array[Dictionary] = []
 	for change in changes:
 		var path: Array = change.get("path", [])

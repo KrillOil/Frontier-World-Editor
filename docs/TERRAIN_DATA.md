@@ -45,6 +45,18 @@ Surface, cliff-style, and sky IDs resolve through separate editor and Frontier c
 
 Terrain changes use 32×32-cell tile deltas containing exact before/after spans. One press-drag-release gesture is one transaction. Escape restores its complete before-state; a new accepted edit clears redo. The history budget is 256 MiB decoded delta data. Oldest transactions are evicted with a visible notice; if one operation exceeds the budget it is rejected before mutation. Dirty state compares the current transaction cursor with the last successful save marker.
 
+### Sculpt equations
+
+Sculpt gestures snapshot parameters on press and place stamps every `max(cell_size / 4, radius / 4)` metres along the world-space pointer path. A circular stamp uses normalized distance `d`. Falloff is constant `1`, linear `1-d`, or smooth `(1-d)^2 × (3-2(1-d))`, clamped to `[0,1]`.
+
+- Raise/lower add/subtract `round(strength_cm × falloff)`.
+- Flatten blends toward the entered or sampled target by `min(1, strength_percent / 100) × falloff`.
+- Plateau has full influence through 65% of its radius, then the selected falloff across the outer 35%.
+- Smooth blends toward a clamped-border 3×3 mean.
+- Noise adds `round(strength_cm × falloff × noise(x,z,seed))`; version 1 uses the integer hash in `terrain_sculptor.gd` and yields `[-1,1]`.
+
+Results are rounded and clamped to signed centimetres. Preview uses a private buffer; release commits one exact delta and Escape discards it.
+
 Resize, reset, paste, layer lifecycle, pathing rebuild, and runtime build are previewed transactions. They report changed/cropped samples and affected objects/spawns, commit all canonical files or none, and respond to cancellation within 250 ms.
 
 ## Object and spawn grounding
