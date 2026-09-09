@@ -54,6 +54,11 @@ func run() -> void:
 	_check(editor.pathing_dialog.visible and editor.pathing_layer.item_count == 2 and editor.pathing_clearance.item_count == 3, "Pathing workflow exposes separate layers and supported clearances")
 	editor.toggle_pathing_overlay()
 	_check(editor.pathing_overlay_visible and editor.pathing.last_overlay.size() == 120, "Walkability overlay computes every canonical cell")
+	editor.show_environment_editor()
+	_check(editor.environment_dialog.visible and editor.environment_sky.item_count == 2 and editor.environment_fields.size() == 7, "Environment workflow exposes focused sun, ambient, fog, and sky controls")
+	var preview_before:bool=editor.environment_preview_enabled
+	editor.toggle_environment_preview()
+	_check(editor.environment_preview_enabled != preview_before, "Accurate environment preview toggles without mutating authored data")
 	var guard: Dictionary = editor.package.find_definition("unit_crimsdale_guard")
 	_check(guard.owner == "player" and guard.max_health == 120.0, "Crimsdale guard exposes authored gameplay fields")
 	editor.load_definition_form(2 if editor.definition_list.get_item_metadata(2) == "unit_crimsdale_guard" else 3)

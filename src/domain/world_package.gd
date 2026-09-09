@@ -89,6 +89,12 @@ func resource_errors() -> Array[String]:
 				known_cliffs[style.get("style_id", "")] = true
 		if not known_cliffs.has(terrain.data.cliffs.style_id):
 			failures.append("Terrain cliff style '%s' is unresolved in %s" % [terrain.data.cliffs.style_id, cliff_catalog_path])
+		var sky_catalog_path := "res://content/%s/terrain_skies.json" % world.get("world_id", "")
+		var sky_catalog = JSON.parse_string(FileAccess.get_file_as_string(sky_catalog_path))
+		var known_skies := {}
+		if sky_catalog is Dictionary:
+			for sky in sky_catalog.get("skies", []):known_skies[sky.get("sky_id","")]=true
+		if not known_skies.has(terrain.data.environment.sky_id):failures.append("Terrain sky '%s' is unresolved in %s"%[terrain.data.environment.sky_id,sky_catalog_path])
 	return failures
 
 

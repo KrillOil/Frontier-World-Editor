@@ -308,6 +308,7 @@ func validate(candidate: Dictionary) -> Array[String]:
 				break
 	if not candidate.water.get("enabled") is bool or not _is_json_integer(candidate.water.get("level_cm")) or candidate.water.get("level_cm", 0) < -32768 or candidate.water.get("level_cm", 0) > 32767:
 		failures.append("terrain.json.water requires enabled boolean and signed-centimetre level")
+	_validate_environment(candidate.environment, failures)
 	_validate_cliff_topology(candidate, failures)
 	_validate_cell_array(candidate.pathing.get("movement"), _cell_count(candidate), "pathing.movement", failures)
 	_validate_cell_array(candidate.pathing.get("placement"), _cell_count(candidate), "pathing.placement", failures)
@@ -431,6 +432,21 @@ func _cliff_ramp_allows(ramps: Array, x: int, z: int, direction: String) -> bool
 		return true
 	var reciprocal := {"direction": "west" if direction == "east" else "north", "x": x + (1 if direction == "east" else 0), "z": z + (1 if direction == "south" else 0)}
 	return reciprocal in ramps
+
+
+func _validate_environment(environment:Dictionary,failures:Array[String])->void:
+	var required:=["sun_azimuth_deg","sun_elevation_deg","sun_color_linear","sun_energy","ambient_color_linear","ambient_energy","fog_enabled","fog_color_linear","fog_density","fog_start_m","fog_end_m","sky_id"]
+	_require_keys(environment,required,"terrain.json.environment",failures)
+	for field in ["sun_color_linear","ambient_color_linear","fog_color_linear"]:
+		var color=environment.get(field)
+		if not color is Array or color.size()!=3 or color.any(func(value):return (not value is int and not value is float) or value<0 or value>1):failures.append("terrain.json.environment.%s must be three linear values in 0..1"%field)
+	if float(environment.get("sun_azimuth_deg",999)) < -360 or float(environment.get("sun_azimuth_deg",999)) > 360:failures.append("terrain.json.environment.sun_azimuth_deg must be -360..360")
+	if float(environment.get("sun_elevation_deg",999)) < -90 or float(environment.get("sun_elevation_deg",999)) > 90:failures.append("terrain.json.environment.sun_elevation_deg must be -90..90")
+	for field in ["sun_energy","ambient_energy"]:
+		if float(environment.get(field,-1))<0 or float(environment.get(field,-1))>16:failures.append("terrain.json.environment.%s must be 0..16"%field)
+	if not environment.get("fog_enabled") is bool or float(environment.get("fog_density",-1))<0 or float(environment.get("fog_density",-1))>1:failures.append("terrain.json.environment fog enable/density is invalid")
+	if float(environment.get("fog_start_m",-1))<0 or float(environment.get("fog_end_m",0))<=float(environment.get("fog_start_m",0)):failures.append("terrain.json.environment fog distances require 0 <= start < end")
+	if not environment.get("sky_id") is String or environment.get("sky_id","").is_empty():failures.append("terrain.json.environment.sky_id must be a logical ID")
 
 
 func _require_keys(value: Dictionary, required: Array, context: String, failures: Array[String]) -> void:
