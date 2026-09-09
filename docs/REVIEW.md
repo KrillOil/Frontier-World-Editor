@@ -24,17 +24,21 @@ The editor opens Crimsdale automatically. It uses deliberately simple reference 
 
 ## Test World
 
-Test World is operational through a configurable command while Frontier's permanent command-line contract remains unconfirmed.
+Test World launches either an exported Frontier build or the Frontier Godot project using the accepted package-and-spawn contract.
 
 ```bash
-FRONTIER_TEST_COMMAND='frontier --world-package "{package}" --spawn "{spawn}"' ./scripts/run.sh
+FRONTIER_EXECUTABLE=/path/to/Frontier ./scripts/run.sh
 ```
 
-The editor substitutes the absolute package directory and `player_start`, saves first, and reports launch failure in the status bar.
+For a source-project review:
 
-## Known integration dependency
+```bash
+FRONTIER_EXECUTABLE=/path/to/Godot_v4.7.1 \
+FRONTIER_PROJECT_PATH=/path/to/Frontier/Game \
+./scripts/run.sh
+```
 
-The editor-side MVP is reviewable. Completing the live Frontier launch requires the Frontier repository to accept a package path and spawn identifier. That cross-repository contract remains represented by GitHub issue #13 and must not be guessed here.
+The editor supplies the absolute saved package path and `player_start`. Frontier pull request #20 implements the consuming side; it requires Creator acceptance and merge before this integration is part of Frontier `main`.
 
 ## Automated evidence
 

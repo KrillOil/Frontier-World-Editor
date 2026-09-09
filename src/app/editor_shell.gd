@@ -19,6 +19,7 @@ var placement_ghost: MeshInstance3D
 var object_dialog: Window
 var unsaved_dialog: ConfirmationDialog
 var package_dialog: FileDialog
+var error_dialog: AcceptDialog
 var pending_after_save: Callable
 var definition_list: ItemList
 var definition_id_field: LineEdit
@@ -504,6 +505,9 @@ func _build_package_dialogs() -> void:
 	unsaved_dialog.confirmed.connect(save_then_continue)
 	unsaved_dialog.custom_action.connect(discard_then_continue)
 	add_child(unsaved_dialog)
+	error_dialog = AcceptDialog.new()
+	error_dialog.title = "Frontier World Editor"
+	add_child(error_dialog)
 
 
 func show_object_editor() -> void:
@@ -639,17 +643,29 @@ func test_world() -> void:
 
 
 func launch_test_world() -> void:
-	var command := OS.get_environment("FRONTIER_TEST_COMMAND")
-	if command.is_empty():
-		status("Set FRONTIER_TEST_COMMAND to enable Test World")
+	package.errors = package.validate()
+	package.errors.append_array(package.resource_errors())
+	if not package.errors.is_empty():
+		show_errors()
 		return
-	command = command.replace("{package}", ProjectSettings.globalize_path(package.package_path)).replace("{spawn}", "player_start")
-	var output: Array = []
-	var result := OS.execute("/bin/sh", ["-lc", command], output, false)
-	if result != OK:
-		status("Frontier launch failed (%s)" % result)
+	var executable := OS.get_environment("FRONTIER_EXECUTABLE")
+	if executable.is_empty():
+		show_blocking_error("Set FRONTIER_EXECUTABLE to enable Test World")
+		return
+	var launch := build_test_world_launch(executable, OS.get_environment("FRONTIER_PROJECT_PATH"), ProjectSettings.globalize_path(package.package_path), "player_start")
+	var process_id := OS.create_process(launch.executable, launch.arguments)
+	if process_id <= 0:
+		show_blocking_error("Frontier could not be launched. Check FRONTIER_EXECUTABLE and try again.")
 	else:
 		status("Frontier launched at player_start")
+
+
+func build_test_world_launch(executable: String, frontier_project_path: String, package_path: String, spawn_id: String) -> Dictionary:
+	var arguments := PackedStringArray()
+	if not frontier_project_path.is_empty():
+		arguments.append_array(["--path", frontier_project_path, "--"])
+	arguments.append_array(["--world-package", package_path, "--spawn", spawn_id])
+	return {"executable": executable, "arguments": arguments}
 
 
 func request_open_package() -> void:
@@ -704,7 +720,14 @@ func _notification(what: int) -> void:
 
 
 func show_errors() -> void:
-	status(" | ".join(package.errors))
+	show_blocking_error("\n".join(package.errors))
+
+
+func show_blocking_error(message: String) -> void:
+	status(message.replace("\n", " | "))
+	if error_dialog != null:
+		error_dialog.dialog_text = message
+		error_dialog.popup_centered()
 
 
 func status(message: String) -> void:

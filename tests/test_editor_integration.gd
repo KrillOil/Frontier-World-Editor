@@ -35,6 +35,12 @@ func run() -> void:
 	_check(not placed_id.is_empty() and editor.world_root.get_node_or_null(placed_id) != null, "Placed data maps to a viewport preview")
 	_check(editor.package.undo() and editor.package.world.objects.size() == initial_count, "Placement can be undone")
 
+	var exported_launch: Dictionary = editor.build_test_world_launch("Frontier.exe", "", "C:/Worlds/Crimsdale", "player_start")
+	_check(exported_launch.executable == "Frontier.exe", "Exported Frontier executable is preserved")
+	_check(exported_launch.arguments == PackedStringArray(["--world-package", "C:/Worlds/Crimsdale", "--spawn", "player_start"]), "Exported build receives the agreed package and spawn contract")
+	var project_launch: Dictionary = editor.build_test_world_launch("godot", "/projects/Frontier/Game", "/worlds/crimsdale", "player_start")
+	_check(project_launch.arguments == PackedStringArray(["--path", "/projects/Frontier/Game", "--", "--world-package", "/worlds/crimsdale", "--spawn", "player_start"]), "Godot development launch preserves the same runtime contract")
+
 	editor.viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
 	root.remove_child(editor)
 	editor.free()
