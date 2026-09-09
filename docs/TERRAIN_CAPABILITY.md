@@ -63,3 +63,12 @@ The parent GitHub capability cannot leave this gate until it links accepted:
 8. Complete migrations, crash recovery, runtime caches, and Crimsdale Test World conformance.
 
 Do not implement until the review findings are resolved into issue acceptance criteria and the first increment is explicitly commissioned.
+
+## Workflow contract
+
+- Selection is a bounded cell-resolution rectangle; clipboard v1 uses a north-west anchor and an explicit boolean mask.
+- Copy domains are height, surface, cliff, water, and pathing. Replace copies all enabled values; merge skips zero cliff levels and inherited pathing.
+- Paste requires matching cell size, surface-layer order, and cliff style. Its preview reports clipping, and validation commits every domain together or none.
+- Terrain history is capped at 256 MiB, groups each gesture into one entry, evicts oldest entries with a visible flag, refuses a single over-budget change, invalidates redo after a new edit, and compares revisions to the save marker for dirty state.
+- Grid and height snapping default to one cell and 25 cm. Sampling reports all authored domains at the chosen cell.
+- Workflow shortcuts are listed in the panel and suppressed while a text or numeric field has focus. Status always reports the current selection, snap, clipboard, or tool result.

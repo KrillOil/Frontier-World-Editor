@@ -59,6 +59,16 @@ func run() -> void:
 	var preview_before:bool=editor.environment_preview_enabled
 	editor.toggle_environment_preview()
 	_check(editor.environment_preview_enabled != preview_before, "Accurate environment preview toggles without mutating authored data")
+	editor.show_workflow_editor()
+	_check(editor.workflow_dialog.visible and editor.workflow_domains.size() == 5 and editor.workflow_mode.item_count == 2, "Workflow panel exposes explicit domain toggles and merge/replace paste")
+	editor.workflow_fields.width.value = 2
+	editor.workflow_fields.depth.value = 2
+	editor._workflow_copy()
+	_check(editor.terrain_clipboard.get("clipboard_version") == 1, "Creator selection produces a portable versioned clipboard")
+	editor.workflow_fields.paste_x.value = 2
+	editor.workflow_fields.paste_z.value = 2
+	editor._workflow_paste()
+	_check(editor.package.terrain.can_undo(), "Creator paste is available as one undoable operation")
 	var guard: Dictionary = editor.package.find_definition("unit_crimsdale_guard")
 	_check(guard.owner == "player" and guard.max_health == 120.0, "Crimsdale guard exposes authored gameplay fields")
 	editor.load_definition_form(2 if editor.definition_list.get_item_metadata(2) == "unit_crimsdale_guard" else 3)
