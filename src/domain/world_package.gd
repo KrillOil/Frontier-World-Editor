@@ -59,6 +59,28 @@ func resource_errors() -> Array[String]:
 		var scene_path: String = definition.get("scene_path", "")
 		if scene_path.begins_with("res://") and not ResourceLoader.exists(scene_path):
 			failures.append("Definition '%s' cannot load scene_path '%s'" % [definition.definition_id, scene_path])
+	if terrain != null:
+		var catalog_path := "res://content/%s/terrain_surfaces.json" % world.get("world_id", "")
+		var catalog_file := FileAccess.open(catalog_path, FileAccess.READ)
+		if catalog_file == null:
+			failures.append("Terrain surface catalog is missing: %s" % catalog_path)
+		else:
+			var catalog = JSON.parse_string(catalog_file.get_as_text())
+			var known := {}
+			if catalog is Dictionary:
+				for surface in catalog.get("surfaces", []):
+					var surface_id: String = surface.get("surface_id", "")
+					var source_path: String = surface.get("editor_source_path", "")
+					var expected_hash: String = surface.get("resource_sha256", "")
+					if source_path.is_empty() or not FileAccess.file_exists(source_path):
+						failures.append("Terrain surface '%s' source is missing: %s" % [surface_id, source_path])
+					elif FileAccess.get_sha256(source_path) != expected_hash:
+						failures.append("Terrain surface '%s' source hash does not match its catalog" % surface_id)
+					else:
+						known[surface_id] = true
+			for surface_id in terrain.data.surfaces.layer_ids:
+				if not known.has(surface_id):
+					failures.append("Terrain surface '%s' is unresolved in %s" % [surface_id, catalog_path])
 	return failures
 
 

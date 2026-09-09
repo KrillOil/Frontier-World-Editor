@@ -75,6 +75,10 @@ func replace(width_cells: int, depth_cells: int, cell_size_m: float, base_height
 	return _commit_structural_delta("Replace terrain", make_default(width_cells, depth_cells, cell_size_m, base_height_cm, origin_x_m, origin_z_m))
 
 
+func commit_structural(label: String, candidate: Dictionary) -> bool:
+	return _commit_structural_delta(label, candidate)
+
+
 func make_default(width_cells: int, depth_cells: int, cell_size_m: float, base_height_cm: int, origin_x_m: float, origin_z_m: float) -> Dictionary:
 	var cells := width_cells * depth_cells
 	var heights: Array = []
@@ -359,6 +363,12 @@ func _validate_surfaces(surfaces: Dictionary, cells: int, failures: Array[String
 	if not layers is Array or layers.size() < 1 or layers.size() > 4:
 		failures.append("terrain.json.surfaces.layer_ids must contain 1..4 layers")
 		return
+	var unique_layers := {}
+	for layer_id in layers:
+		if not layer_id is String or layer_id.is_empty() or unique_layers.has(layer_id):
+			failures.append("terrain.json.surfaces.layer_ids must contain unique non-empty logical IDs")
+			return
+		unique_layers[layer_id] = true
 	if not weights is Array or weights.size() != cells * layers.size():
 		failures.append("terrain.json.surfaces.weights length must equal cells * layers")
 		return

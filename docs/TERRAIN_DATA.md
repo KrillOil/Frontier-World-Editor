@@ -57,6 +57,12 @@ Sculpt gestures snapshot parameters on press and place stamps every `max(cell_si
 
 Results are rounded and clamped to signed centimetres. Preview uses a private buffer; release commits one exact delta and Escape discards it.
 
+### Surface painting
+
+Surface identity is the stable `surface_id`, resolved through the world catalog. Catalog entries include display name, source SHA-256, source color space, UV scale, preview color, and Frontier material key. An unresolved active ID stays visible but blocks save and Test World.
+
+Each cell has one to four ordered uint8 weights totaling exactly 255. Layer 0 is the non-removable base. Painting increases the selected layer by `round(255 × opacity × falloff)` and proportionally reduces other layers; integer division rounds down and remaining units are removed in stable layer order. Erase transfers weight to layer 0. Add initializes zero weight, replace preserves weights, reorder moves weights with stable IDs, and remove transfers its weight to layer 0. In-use replace/remove shows affected cell and total-weight counts before one atomic history transaction.
+
 Resize, reset, paste, layer lifecycle, pathing rebuild, and runtime build are previewed transactions. They report changed/cropped samples and affected objects/spawns, commit all canonical files or none, and respond to cancellation within 250 ms.
 
 ## Object and spawn grounding

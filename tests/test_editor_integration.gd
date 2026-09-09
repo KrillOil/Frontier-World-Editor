@@ -30,6 +30,8 @@ func run() -> void:
 	editor.toggle_sculpt_mode()
 	_check(editor.sculpt_enabled and editor.sculpt_tool.item_count == 6 and editor.brush_preview != null, "Persistent sculpt HUD exposes all six tools and a live brush preview")
 	editor.toggle_sculpt_mode()
+	editor.show_surface_editor()
+	_check(editor.surface_catalog.item_count == 4 and editor.surface_layers.item_count >= 1, "Surface palette exposes portable catalog entries and active layers")
 	editor.terrain_fields.width_cells.text = "12"
 	editor.terrain_fields.depth_cells.text = "10"
 	editor.terrain_anchor.select(0)

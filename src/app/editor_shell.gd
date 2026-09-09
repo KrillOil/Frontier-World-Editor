@@ -2,6 +2,7 @@ extends Control
 
 const WorldPackageScript = preload("res://src/domain/world_package.gd")
 const TerrainSculptorScript = preload("res://src/domain/terrain_sculptor.gd")
+const TerrainSurfacePainterScript = preload("res://src/domain/terrain_surface_painter.gd")
 const DEFAULT_PACKAGE := "res://worlds/crimsdale"
 
 var package = WorldPackageScript.new()
@@ -36,6 +37,16 @@ var sculpt_target: SpinBox
 var sculpt_seed: SpinBox
 var sculpt_sample_target: CheckBox
 var brush_preview: MeshInstance3D
+var surface_dialog: Window
+var surface_confirmation: ConfirmationDialog
+var surface_catalog: OptionButton
+var surface_layers: OptionButton
+var surface_enabled := false
+var surface_painter
+var surface_radius: SpinBox
+var surface_opacity: SpinBox
+var surface_falloff: OptionButton
+var surface_erase: CheckBox
 var pending_after_save: Callable
 var definition_list: ItemList
 var definition_id_field: LineEdit
@@ -61,6 +72,7 @@ func _ready() -> void:
 	inspector_content = $Workspace/Inspector/Content
 	_build_viewport()
 	_build_sculpt_hud()
+	_build_surface_editor()
 	_build_object_editor()
 	_build_terrain_editor()
 	_build_package_dialogs()
@@ -88,6 +100,7 @@ func _build_toolbar() -> void:
 	_add_button(bar, "Object Editor", show_object_editor)
 	_add_button(bar, "Terrain", show_terrain_editor)
 	_add_button(bar, "Sculpt", toggle_sculpt_mode)
+	_add_button(bar, "Surfaces", show_surface_editor)
 	bar.add_spacer(false)
 	_add_button(bar, "Undo", perform_undo)
 	_add_button(bar, "Redo", perform_redo)
@@ -222,6 +235,11 @@ func toggle_sculpt_mode() -> void:
 		show_blocking_error("Create terrain before sculpting it.")
 		return
 	sculpt_enabled = not sculpt_enabled
+	if sculpt_enabled:
+		surface_enabled = false
+		$Workspace/Viewport/Content/SurfaceHUD.visible = false
+		if surface_painter != null:
+			surface_painter.cancel()
 	$Workspace/Viewport/Content/SculptHUD.visible = sculpt_enabled
 	if sculpt_enabled:
 		cancel_placement()
@@ -260,7 +278,8 @@ func _update_brush_preview(screen_position: Vector2) -> void:
 	var point := ground_position(screen_position)
 	point.y = package.terrain.sample_height(point.x, point.z) + 0.03
 	brush_preview.position = point
-	brush_preview.scale = Vector3(sculpt_radius.value, 1.0, sculpt_radius.value)
+	var radius := surface_radius.value if surface_enabled else sculpt_radius.value
+	brush_preview.scale = Vector3(radius, 1.0, radius)
 
 
 func _sculpt_parameters() -> Dictionary:
@@ -275,6 +294,164 @@ func cancel_sculpt_stroke() -> void:
 		sculptor.cancel()
 		refresh_terrain_preview()
 		status("Sculpt stroke cancelled")
+
+
+func _build_surface_editor() -> void:
+	var hud := HFlowContainer.new()
+	hud.name = "SurfaceHUD"
+	hud.visible = false
+	$Workspace/Viewport/Content.add_child(hud)
+	$Workspace/Viewport/Content.move_child(hud, 1)
+	var title := Label.new()
+	title.text = "SURFACE PAINT"
+	hud.add_child(title)
+	surface_radius = _hud_spin(hud, "Radius m", 1.0, 64.0, 3.0, 0.5)
+	surface_opacity = _hud_spin(hud, "Opacity", 0.0, 1.0, 0.25, 0.05)
+	surface_falloff = OptionButton.new()
+	for name in TerrainSurfacePainterScript.FALLOFFS:
+		surface_falloff.add_item(name.capitalize())
+		surface_falloff.set_item_metadata(surface_falloff.item_count - 1, name)
+	surface_falloff.select(2)
+	hud.add_child(surface_falloff)
+	surface_erase = CheckBox.new()
+	surface_erase.text = "Erase to base"
+	hud.add_child(surface_erase)
+
+	surface_dialog = Window.new()
+	surface_dialog.title = "Terrain Surfaces"
+	surface_dialog.size = Vector2i(520, 430)
+	surface_dialog.close_requested.connect(surface_dialog.hide)
+	add_child(surface_dialog)
+	var form := VBoxContainer.new()
+	form.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	form.offset_left = 18
+	form.offset_top = 18
+	form.offset_right = -18
+	form.offset_bottom = -18
+	surface_dialog.add_child(form)
+	var help := Label.new()
+	help.text = "Logical surface IDs remain portable between the editor and Frontier. Layer order controls shader order; every cell always totals 255."
+	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	form.add_child(help)
+	surface_catalog = OptionButton.new()
+	for entry in _load_surface_catalog():
+		var icon = load(entry.editor_source_path) if ResourceLoader.exists(entry.editor_source_path) else null
+		if icon != null:
+			surface_catalog.add_icon_item(icon, "%s — %s" % [entry.display_name, entry.surface_id])
+		else:
+			surface_catalog.add_item("Missing: %s — %s" % [entry.display_name, entry.surface_id])
+		surface_catalog.set_item_metadata(surface_catalog.item_count - 1, entry.surface_id)
+	form.add_child(surface_catalog)
+	surface_layers = OptionButton.new()
+	form.add_child(surface_layers)
+	_add_button(form, "Add Catalog Surface", add_surface_layer)
+	_add_button(form, "Replace Selected Layer", request_replace_surface_layer)
+	_add_button(form, "Move Selected Up", move_surface_layer.bind(-1))
+	_add_button(form, "Move Selected Down", move_surface_layer.bind(1))
+	_add_button(form, "Remove Selected Layer", request_remove_surface_layer)
+	_add_button(form, "Paint Selected Layer", enable_surface_paint)
+	surface_confirmation = ConfirmationDialog.new()
+	surface_confirmation.title = "Confirm Surface Layer Change"
+	add_child(surface_confirmation)
+
+
+func _load_surface_catalog() -> Array:
+	var file := FileAccess.open("res://content/crimsdale/terrain_surfaces.json", FileAccess.READ)
+	if file == null:
+		return []
+	var parsed = JSON.parse_string(file.get_as_text())
+	return parsed.get("surfaces", []) if parsed is Dictionary else []
+
+
+func show_surface_editor() -> void:
+	if package.terrain == null:
+		show_blocking_error("Create terrain before editing surfaces.")
+		return
+	refresh_surface_layers()
+	surface_dialog.popup_centered()
+
+
+func refresh_surface_layers() -> void:
+	var selected := surface_layers.selected
+	surface_layers.clear()
+	for id in package.terrain.data.surfaces.layer_ids:
+		surface_layers.add_item(id)
+		surface_layers.set_item_metadata(surface_layers.item_count - 1, id)
+	if surface_layers.item_count > 0:
+		surface_layers.select(clampi(selected, 0, surface_layers.item_count - 1))
+
+
+func add_surface_layer() -> void:
+	var id: String = surface_catalog.get_item_metadata(surface_catalog.selected)
+	var painter = TerrainSurfacePainterScript.new(package.terrain)
+	if painter.add_layer(id):
+		refresh_surface_layers()
+		refresh_all()
+		status("Added surface layer '%s'" % id)
+	else:
+		show_blocking_error("That surface is already active or the four-layer limit is reached.")
+
+
+func request_replace_surface_layer() -> void:
+	var index := surface_layers.selected
+	var impact = TerrainSurfacePainterScript.new(package.terrain).layer_impact(index)
+	surface_confirmation.dialog_text = "Replace '%s'? Its identity changes across %d painted cells; weights are preserved." % [surface_layers.get_item_text(index), impact.cells]
+	for connection in surface_confirmation.confirmed.get_connections():
+		surface_confirmation.confirmed.disconnect(connection.callable)
+	surface_confirmation.confirmed.connect(replace_surface_layer.bind(index), CONNECT_ONE_SHOT)
+	surface_confirmation.popup_centered()
+
+
+func replace_surface_layer(index: int) -> void:
+	var id: String = surface_catalog.get_item_metadata(surface_catalog.selected)
+	if TerrainSurfacePainterScript.new(package.terrain).replace_layer(index, id):
+		refresh_surface_layers()
+		refresh_all()
+
+
+func request_remove_surface_layer() -> void:
+	var index := surface_layers.selected
+	if index == 0:
+		show_blocking_error("The base surface cannot be removed.")
+		return
+	var impact = TerrainSurfacePainterScript.new(package.terrain).layer_impact(index)
+	surface_confirmation.dialog_text = "Remove '%s'? %d painted cells (%d total byte-weight) transfer to the base layer." % [surface_layers.get_item_text(index), impact.cells, impact.total_weight]
+	for connection in surface_confirmation.confirmed.get_connections():
+		surface_confirmation.confirmed.disconnect(connection.callable)
+	surface_confirmation.confirmed.connect(remove_surface_layer.bind(index), CONNECT_ONE_SHOT)
+	surface_confirmation.popup_centered()
+
+
+func remove_surface_layer(index: int) -> void:
+	if TerrainSurfacePainterScript.new(package.terrain).remove_layer(index):
+		refresh_surface_layers()
+		refresh_all()
+
+
+func move_surface_layer(direction: int) -> void:
+	var from := surface_layers.selected
+	var to := clampi(from + direction, 0, surface_layers.item_count - 1)
+	if from == to:
+		return
+	var order: Array = package.terrain.data.surfaces.layer_ids.duplicate()
+	var id = order.pop_at(from)
+	order.insert(to, id)
+	if TerrainSurfacePainterScript.new(package.terrain).reorder_layers(order):
+		refresh_surface_layers()
+		surface_layers.select(to)
+		refresh_all()
+
+
+func enable_surface_paint() -> void:
+	sculpt_enabled = false
+	$Workspace/Viewport/Content/SculptHUD.visible = false
+	surface_enabled = true
+	$Workspace/Viewport/Content/SurfaceHUD.visible = true
+	surface_painter = TerrainSurfacePainterScript.new(package.terrain)
+	if brush_preview == null:
+		_make_brush_preview()
+	surface_dialog.hide()
+	status("Surface paint: drag to paint; Escape cancels a stroke")
 
 
 func refresh_all() -> void:
@@ -302,12 +479,26 @@ func refresh_terrain_preview() -> void:
 	arrays.resize(Mesh.ARRAY_MAX)
 	var vertices := PackedVector3Array()
 	var indices := PackedInt32Array()
+	var colors := PackedColorArray()
 	var grid: Dictionary = package.terrain.data.grid
+	var surface_colors := {}
+	for entry in _load_surface_catalog():
+		surface_colors[entry.surface_id] = Color(entry.preview_color_srgb)
+	var layer_ids: Array = package.terrain.data.surfaces.layer_ids
+	var weights: Array = surface_painter.preview_weights if surface_painter != null and surface_painter.active else package.terrain.data.surfaces.weights
 	for z in int(grid.depth_cells) + 1:
 		for x in int(grid.width_cells) + 1:
 			var height_index := z * (int(grid.width_cells) + 1) + x
 			var height_cm: int = sculptor.preview_height_cm(height_index) if sculptor != null and sculptor.active else int(grid.heights_cm[height_index])
 			vertices.append(Vector3(float(grid.origin_x_m) + x * float(grid.cell_size_m), float(height_cm) / 100.0, float(grid.origin_z_m) + z * float(grid.cell_size_m)))
+			var cell_x := mini(x, int(grid.width_cells) - 1)
+			var cell_z := mini(z, int(grid.depth_cells) - 1)
+			var cell_index := cell_z * int(grid.width_cells) + cell_x
+			var blended := Color(0, 0, 0, 1)
+			for layer in layer_ids.size():
+				blended += surface_colors.get(layer_ids[layer], Color.MAGENTA) * (float(weights[cell_index * layer_ids.size() + layer]) / 255.0)
+			blended.a = 1.0
+			colors.append(blended)
 	for z in int(grid.depth_cells):
 		for x in int(grid.width_cells):
 			var north_west := z * (int(grid.width_cells) + 1) + x
@@ -315,11 +506,13 @@ func refresh_terrain_preview() -> void:
 			indices.append_array([north_west, south_west, north_west + 1, north_west + 1, south_west, south_west + 1])
 	arrays[Mesh.ARRAY_VERTEX] = vertices
 	arrays[Mesh.ARRAY_INDEX] = indices
+	arrays[Mesh.ARRAY_COLOR] = colors
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	terrain_mesh.mesh = mesh
 	var material := StandardMaterial3D.new()
-	material.albedo_color = Color("4f6849")
+	material.albedo_color = Color.WHITE
+	material.vertex_color_use_as_albedo = true
 	material.roughness = 1.0
 	terrain_mesh.material_override = material
 	world_root.add_child(terrain_mesh)
@@ -491,6 +684,20 @@ func refresh_inspector() -> void:
 
 
 func _on_viewport_input(event: InputEvent) -> void:
+	if surface_enabled and event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		viewport_container.grab_focus()
+		mouse_position = event.position
+		var point := ground_position(event.position)
+		if event.pressed:
+			surface_painter.begin(surface_layers.selected, Vector2(point.x, point.z), {"radius_m": surface_radius.value, "opacity": surface_opacity.value, "falloff": surface_falloff.get_item_metadata(surface_falloff.selected), "erase": surface_erase.button_pressed})
+		else:
+			if surface_painter.commit():
+				status("Surface stroke committed")
+			else:
+				package.errors = package.terrain.errors
+				show_errors()
+			refresh_all()
+		return
 	if sculpt_enabled and event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		viewport_container.grab_focus()
 		mouse_position = event.position
@@ -514,6 +721,12 @@ func _on_viewport_input(event: InputEvent) -> void:
 			if sculptor != null and sculptor.active and event.button_mask & MOUSE_BUTTON_MASK_LEFT:
 				var point := ground_position(event.position)
 				sculptor.extend(Vector2(point.x, point.z))
+				refresh_terrain_preview()
+		elif surface_enabled:
+			_update_brush_preview(event.position)
+			if surface_painter != null and surface_painter.active and event.button_mask & MOUSE_BUTTON_MASK_LEFT:
+				var point := ground_position(event.position)
+				surface_painter.extend(Vector2(point.x, point.z))
 				refresh_terrain_preview()
 		if event.button_mask & MOUSE_BUTTON_MASK_MIDDLE:
 			if event.shift_pressed:
@@ -558,7 +771,10 @@ func _on_viewport_input(event: InputEvent) -> void:
 				select_at(event.position)
 	elif event is InputEventKey and event.pressed:
 		if event.keycode == KEY_ESCAPE:
-			if sculpt_enabled and sculptor != null and sculptor.active:
+			if surface_enabled and surface_painter != null and surface_painter.active:
+				surface_painter.cancel()
+				status("Surface stroke cancelled")
+			elif sculpt_enabled and sculptor != null and sculptor.active:
 				cancel_sculpt_stroke()
 			elif moving_instance:
 				moving_instance = false
