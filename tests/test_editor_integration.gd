@@ -1,6 +1,7 @@
 extends SceneTree
 
 const SHELL := preload("res://src/app/editor_shell.tscn")
+const CLIFF_WATER := preload("res://src/domain/terrain_cliff_water.gd")
 
 var failures: Array[String] = []
 
@@ -41,6 +42,14 @@ func run() -> void:
 	_check(editor.package.terrain.data.grid.width_cells == 8, "Main toolbar undo restores the prior terrain bounds")
 	editor.perform_redo()
 	_check(editor.package.terrain.data.grid.width_cells == 12, "Main toolbar redo reapplies the terrain transaction")
+	_check(editor.cliff_dialog != null and editor.cliff_style.item_count == 2, "Cliff and water workflow exposes the portable style catalog")
+	var cliff_tools = CLIFF_WATER.new(editor.package.terrain)
+	_check(cliff_tools.change_level(0, 0, 1), "Creator cliff operation updates a cell")
+	editor.refresh_terrain_preview()
+	_check(editor.world_root.get_node("TerrainPreview").mesh.get_aabb().end.y >= 2.0, "Discrete cliff height is visible in generated terrain geometry")
+	cliff_tools.set_water(true, 100)
+	editor.refresh_terrain_preview()
+	_check(editor.world_root.get_node_or_null("WaterPreview") != null, "Water depth preview is generated in the viewport")
 	var guard: Dictionary = editor.package.find_definition("unit_crimsdale_guard")
 	_check(guard.owner == "player" and guard.max_health == 120.0, "Crimsdale guard exposes authored gameplay fields")
 	editor.load_definition_form(2 if editor.definition_list.get_item_metadata(2) == "unit_crimsdale_guard" else 3)

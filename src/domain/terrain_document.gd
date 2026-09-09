@@ -289,6 +289,26 @@ func validate(candidate: Dictionary) -> Array[String]:
 	_validate_grid(candidate.grid, failures)
 	_validate_surfaces(candidate.surfaces, int(candidate.grid.get("width_cells", 0)) * int(candidate.grid.get("depth_cells", 0)), failures)
 	_validate_cell_array(candidate.cliffs.get("levels"), _cell_count(candidate), "cliffs.levels", failures)
+	if candidate.cliffs.get("levels") is Array:
+		for value in candidate.cliffs.levels:
+			if not _is_json_integer(value) or value < -16 or value > 16:
+				failures.append("terrain.json.cliffs.levels must be integers in -16..16")
+				break
+	if not candidate.cliffs.get("style_id") is String or candidate.cliffs.get("style_id", "").is_empty():
+		failures.append("terrain.json.cliffs.style_id must be a logical ID")
+	if not candidate.cliffs.get("ramps") is Array:
+		failures.append("terrain.json.cliffs.ramps must be an array")
+	else:
+		for ramp in candidate.cliffs.ramps:
+			if not ramp is Dictionary or ramp.keys().size() != 3 or not ramp.has_all(["x", "z", "direction"]):
+				failures.append("terrain.json.cliffs.ramps entries require only x, z, and direction")
+				break
+			if not _is_json_integer(ramp.x) or not _is_json_integer(ramp.z) or ramp.x < 0 or ramp.z < 0 or ramp.x >= int(candidate.grid.width_cells) or ramp.z >= int(candidate.grid.depth_cells) or ramp.direction not in ["north", "east", "south", "west"]:
+				failures.append("terrain.json.cliffs.ramps entry is out of bounds or has an invalid direction")
+				break
+	if not candidate.water.get("enabled") is bool or not _is_json_integer(candidate.water.get("level_cm")) or candidate.water.get("level_cm", 0) < -32768 or candidate.water.get("level_cm", 0) > 32767:
+		failures.append("terrain.json.water requires enabled boolean and signed-centimetre level")
+	_validate_cliff_topology(candidate, failures)
 	_validate_cell_array(candidate.pathing.get("movement"), _cell_count(candidate), "pathing.movement", failures)
 	_validate_cell_array(candidate.pathing.get("placement"), _cell_count(candidate), "pathing.placement", failures)
 	for field in ["movement", "placement"]:
@@ -388,6 +408,29 @@ func _validate_surfaces(surfaces: Dictionary, cells: int, failures: Array[String
 func _validate_cell_array(values: Variant, cells: int, name: String, failures: Array[String]) -> void:
 	if not values is Array or values.size() != cells:
 		failures.append("terrain.json.%s length must equal width_cells * depth_cells" % name)
+
+
+func _validate_cliff_topology(candidate: Dictionary, failures: Array[String]) -> void:
+	if not candidate.cliffs.get("levels") is Array or candidate.cliffs.levels.size() != _cell_count(candidate) or not candidate.cliffs.get("ramps") is Array:
+		return
+	var width := int(candidate.grid.width_cells)
+	var depth := int(candidate.grid.depth_cells)
+	for z in depth:
+		for x in width:
+			var level := int(candidate.cliffs.levels[z * width + x])
+			if x + 1 < width and absi(level - int(candidate.cliffs.levels[z * width + x + 1])) > 1 and not _cliff_ramp_allows(candidate.cliffs.ramps, x, z, "east"):
+				failures.append("terrain.json.cliffs has a level difference above one without an east/west ramp at %d,%d" % [x, z])
+				return
+			if z + 1 < depth and absi(level - int(candidate.cliffs.levels[(z + 1) * width + x])) > 1 and not _cliff_ramp_allows(candidate.cliffs.ramps, x, z, "south"):
+				failures.append("terrain.json.cliffs has a level difference above one without a north/south ramp at %d,%d" % [x, z])
+				return
+
+
+func _cliff_ramp_allows(ramps: Array, x: int, z: int, direction: String) -> bool:
+	if {"direction": direction, "x": x, "z": z} in ramps:
+		return true
+	var reciprocal := {"direction": "west" if direction == "east" else "north", "x": x + (1 if direction == "east" else 0), "z": z + (1 if direction == "south" else 0)}
+	return reciprocal in ramps
 
 
 func _require_keys(value: Dictionary, required: Array, context: String, failures: Array[String]) -> void:
