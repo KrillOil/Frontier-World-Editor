@@ -18,3 +18,4 @@ fi
 "$godot_bin" --headless --path "$project_root" --script res://tests/test_terrain_sculptor.gd
 "$godot_bin" --headless --path "$project_root" --script res://tests/test_terrain_surfaces.gd
 "$godot_bin" --headless --path "$project_root" --script res://tests/test_terrain_cliff_water.gd
+"$godot_bin" --headless --path "$project_root" --script res://tests/test_terrain_pathing.gd

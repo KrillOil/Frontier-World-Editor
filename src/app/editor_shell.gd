@@ -4,6 +4,7 @@ const WorldPackageScript = preload("res://src/domain/world_package.gd")
 const TerrainSculptorScript = preload("res://src/domain/terrain_sculptor.gd")
 const TerrainSurfacePainterScript = preload("res://src/domain/terrain_surface_painter.gd")
 const TerrainCliffWaterScript = preload("res://src/domain/terrain_cliff_water.gd")
+const TerrainPathingScript = preload("res://src/domain/terrain_pathing.gd")
 const DEFAULT_PACKAGE := "res://worlds/crimsdale"
 
 var package = WorldPackageScript.new()
@@ -54,6 +55,14 @@ var cliff_water_enabled: CheckBox
 var cliff_water_level: SpinBox
 var cliff_mode := ""
 var cliff_ramp_direction: OptionButton
+var pathing_dialog: Window
+var pathing_layer: OptionButton
+var pathing_radius: SpinBox
+var pathing_blocked: CheckBox
+var pathing_clearance: OptionButton
+var pathing_enabled:=false
+var pathing_overlay_visible:=false
+var pathing
 var pending_after_save: Callable
 var definition_list: ItemList
 var definition_id_field: LineEdit
@@ -81,6 +90,7 @@ func _ready() -> void:
 	_build_sculpt_hud()
 	_build_surface_editor()
 	_build_cliff_water_editor()
+	_build_pathing_editor()
 	_build_object_editor()
 	_build_terrain_editor()
 	_build_package_dialogs()
@@ -110,6 +120,7 @@ func _build_toolbar() -> void:
 	_add_button(bar, "Sculpt", toggle_sculpt_mode)
 	_add_button(bar, "Surfaces", show_surface_editor)
 	_add_button(bar, "Cliffs & Water", show_cliff_water_editor)
+	_add_button(bar, "Pathing", show_pathing_editor)
 	bar.add_spacer(false)
 	_add_button(bar, "Undo", perform_undo)
 	_add_button(bar, "Redo", perform_redo)
@@ -552,6 +563,73 @@ func apply_cliff_at(screen_position: Vector2) -> void:
 		show_errors()
 
 
+func _build_pathing_editor()->void:
+	var hud:=HFlowContainer.new();hud.name="PathingHUD";hud.visible=false
+	$Workspace/Viewport/Content.add_child(hud);$Workspace/Viewport/Content.move_child(hud,2)
+	var title:=Label.new();title.text="PATHING PAINT";hud.add_child(title)
+	pathing_layer=OptionButton.new()
+	for layer in ["movement","placement"]:pathing_layer.add_item(layer.capitalize());pathing_layer.set_item_metadata(pathing_layer.item_count-1,layer)
+	hud.add_child(pathing_layer)
+	pathing_radius=_hud_spin(hud,"Radius m",0.5,16,1,0.5)
+	pathing_blocked=CheckBox.new();pathing_blocked.text="Block (off = erase to inherit)";pathing_blocked.button_pressed=true;hud.add_child(pathing_blocked)
+	pathing_clearance=OptionButton.new()
+	for radius in TerrainPathingScript.CLEARANCE_RADII_M:pathing_clearance.add_item("Clearance %.1f m"%radius);pathing_clearance.set_item_metadata(pathing_clearance.item_count-1,radius)
+	hud.add_child(pathing_clearance)
+	var legend:=Label.new();legend.text="Red authored · orange terrain · blue deep water · hatched = no clearance";hud.add_child(legend)
+	pathing_dialog=Window.new();pathing_dialog.title="Pathing";pathing_dialog.size=Vector2i(500,360);pathing_dialog.close_requested.connect(pathing_dialog.hide);add_child(pathing_dialog)
+	var form:=VBoxContainer.new();form.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT);form.offset_left=18;form.offset_top=18;form.offset_right=-18;form.offset_bottom=-18;pathing_dialog.add_child(form)
+	var help:=Label.new();help.text="Movement and building placement are separate. Manual paint only adds restrictions; derived slope, cliff, water, and bounds rules remain authoritative.";help.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;form.add_child(help)
+	_add_button(form,"Toggle Walkability Overlay",toggle_pathing_overlay)
+	_add_button(form,"Paint / Erase Pathing",enable_pathing_paint)
+	_add_button(form,"Validate Starts & Islands",validate_pathing)
+
+
+func show_pathing_editor()->void:
+	if package.terrain==null:show_blocking_error("Create terrain before editing pathing.");return
+	if pathing==null:pathing=TerrainPathingScript.new(package.terrain)
+	pathing_dialog.popup_centered()
+
+
+func toggle_pathing_overlay()->void:
+	pathing_overlay_visible=not pathing_overlay_visible
+	if pathing_overlay_visible:pathing.reset_cancellation();pathing.rebuild_overlay(pathing_layer.get_item_metadata(pathing_layer.selected))
+	refresh_pathing_overlay()
+	status("Walkability overlay visible" if pathing_overlay_visible else "Walkability overlay hidden")
+
+
+func enable_pathing_paint()->void:
+	sculpt_enabled=false;surface_enabled=false;cliff_mode="";pathing_enabled=true
+	$Workspace/Viewport/Content/SculptHUD.visible=false;$Workspace/Viewport/Content/SurfaceHUD.visible=false;$Workspace/Viewport/Content/PathingHUD.visible=true
+	pathing_dialog.hide();pathing_overlay_visible=true;pathing.reset_cancellation();pathing.rebuild_overlay(pathing_layer.get_item_metadata(pathing_layer.selected));refresh_pathing_overlay()
+	status("Pathing paint: drag cells; Escape cancels the active stroke")
+
+
+func validate_pathing()->void:
+	var messages:Array=pathing.validate_connectivity(package.world)
+	if messages.is_empty():status("Pathing validation passed: all starts are connected");return
+	var lines:Array[String]=[]
+	for message in messages:lines.append("%s %s — %d cell(s)"%[message.severity.to_upper(),message.code,message.cells.size()])
+	error_dialog.dialog_text="\n".join(lines);error_dialog.popup_centered()
+
+
+func refresh_pathing_overlay()->void:
+	var existing:=world_root.get_node_or_null("PathingOverlay")
+	if existing!=null:existing.free()
+	if not pathing_overlay_visible or pathing==null:return
+	if pathing.stale:pathing.rebuild_overlay(pathing_layer.get_item_metadata(pathing_layer.selected))
+	var mesh:=ImmediateMesh.new();mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+	var grid:Dictionary=package.terrain.data.grid;var radius:float=pathing_clearance.get_item_metadata(pathing_clearance.selected)
+	for cell in pathing.last_overlay:
+		var reasons:Array=cell.reasons;var clear: bool=pathing.has_clearance(cell.x,cell.z,radius,pathing_layer.get_item_metadata(pathing_layer.selected))
+		if reasons.is_empty() and clear:continue
+		var color:=Color(0.9,0.15,0.2,0.48) if "authored_block" in reasons else Color(0.15,0.45,0.95,0.46) if "deep_water" in reasons else Color(0.95,0.55,0.1,0.44)
+		if not clear and (cell.x+cell.z)%2==0:color.a=0.7
+		var x0: float=float(grid.origin_x_m)+cell.x*float(grid.cell_size_m);var z0: float=float(grid.origin_z_m)+cell.z*float(grid.cell_size_m);var size: float=float(grid.cell_size_m);var y: float=package.terrain.sample_height(x0+size/2,z0+size/2)+0.06
+		for vertex in [Vector3(x0,y,z0),Vector3(x0,y,z0+size),Vector3(x0+size,y,z0),Vector3(x0+size,y,z0),Vector3(x0,y,z0+size),Vector3(x0+size,y,z0+size)]:mesh.surface_set_color(color);mesh.surface_add_vertex(vertex)
+	mesh.surface_end();var preview:=MeshInstance3D.new();preview.name="PathingOverlay";preview.mesh=mesh
+	var material:=StandardMaterial3D.new();material.transparency=BaseMaterial3D.TRANSPARENCY_ALPHA;material.vertex_color_use_as_albedo=true;material.shading_mode=BaseMaterial3D.SHADING_MODE_UNSHADED;preview.material_override=material;world_root.add_child(preview)
+
+
 func refresh_all() -> void:
 	refresh_palette()
 	refresh_world()
@@ -858,6 +936,12 @@ func refresh_inspector() -> void:
 
 
 func _on_viewport_input(event: InputEvent) -> void:
+	if pathing_enabled and event is InputEventMouseButton and event.button_index==MOUSE_BUTTON_LEFT:
+		var point:=ground_position(event.position)
+		if event.pressed:pathing.begin_paint(pathing_layer.get_item_metadata(pathing_layer.selected),pathing_blocked.button_pressed,Vector2(point.x,point.z),pathing_radius.value)
+		else:
+			pathing.commit_paint();pathing.rebuild_overlay(pathing_layer.get_item_metadata(pathing_layer.selected));refresh_pathing_overlay();refresh_all()
+		return
 	if not cliff_mode.is_empty() and event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 		apply_cliff_at(event.position)
 		return
@@ -893,7 +977,9 @@ func _on_viewport_input(event: InputEvent) -> void:
 		return
 	if event is InputEventMouseMotion:
 		mouse_position = event.position
-		if sculpt_enabled:
+		if pathing_enabled and pathing!=null and pathing.painting and event.button_mask&MOUSE_BUTTON_MASK_LEFT:
+			var point:=ground_position(event.position);pathing.extend_paint(Vector2(point.x,point.z))
+		elif sculpt_enabled:
 			_update_brush_preview(event.position)
 			if sculptor != null and sculptor.active and event.button_mask & MOUSE_BUTTON_MASK_LEFT:
 				var point := ground_position(event.position)
@@ -948,7 +1034,9 @@ func _on_viewport_input(event: InputEvent) -> void:
 				select_at(event.position)
 	elif event is InputEventKey and event.pressed:
 		if event.keycode == KEY_ESCAPE:
-			if not cliff_mode.is_empty():
+			if pathing_enabled and pathing!=null and pathing.painting:
+				pathing.cancel_paint();status("Pathing stroke cancelled")
+			elif not cliff_mode.is_empty():
 				cliff_mode = ""
 				status("Selection tool")
 			elif surface_enabled and surface_painter != null and surface_painter.active:
