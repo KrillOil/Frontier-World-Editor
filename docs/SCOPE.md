@@ -28,7 +28,6 @@ The initial sequence must enable:
 
 ## Explicitly deferred
 
-- Terrain sculpting or painting
 - Regions and triggers
 - Abilities, buffs, quests, dialogue, AI authoring, and campaigns
 - General-purpose scripting
@@ -37,5 +36,9 @@ The initial sequence must enable:
 - Exact reproduction of Warcraft III UI or formats
 
 Deferred work must not be added as architecture “for later” unless a commissioned issue needs an extension point now.
+
+## Next capability under review
+
+The complete 47-feature terrain editor is approved for planning and external review. Its proposed delivery contract is [`TERRAIN_CAPABILITY.md`](TERRAIN_CAPABILITY.md) and its implementation inventory lives in the Terrain Editor GitHub milestone. Implementation remains gated on resolving review findings and commissioning the first increment.
 
 [`MVP.md`](MVP.md) is the complete behavioral contract for this commissioned scope.
