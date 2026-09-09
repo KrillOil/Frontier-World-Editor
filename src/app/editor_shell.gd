@@ -28,6 +28,7 @@ var definition_category: OptionButton
 var definition_scene: LineEdit
 var definition_owner: OptionButton
 var unit_fields: Dictionary = {}
+var unit_section_controls: Array[Control] = []
 var mouse_position := Vector2.ZERO
 var creating_definition := false
 var moving_instance := false
@@ -471,26 +472,34 @@ func _build_object_editor() -> void:
 	definition_list.item_selected.connect(load_definition_form)
 	navigation.add_child(definition_list)
 	search.text_changed.connect(filter_definition_list)
+	var form_scroll := ScrollContainer.new()
+	form_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	form_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	root.add_child(form_scroll)
 	var form := VBoxContainer.new()
 	form.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	root.add_child(form)
+	form_scroll.add_child(form)
 	definition_id_field = _add_field(form, "Stable definition ID")
 	definition_name = _add_field(form, "Display name")
 	definition_category = OptionButton.new()
 	for category in WorldPackageScript.CATEGORIES:
 		definition_category.add_item(category)
 	form.add_child(definition_category)
+	definition_category.item_selected.connect(func(_index): refresh_unit_field_visibility())
 	definition_scene = _add_field(form, "Scene path")
 	var unit_heading := Label.new()
 	unit_heading.text = "UNIT GAMEPLAY"
 	form.add_child(unit_heading)
+	unit_section_controls.append(unit_heading)
 	definition_owner = OptionButton.new()
 	for owner in WorldPackageScript.OWNERS:
 		definition_owner.add_item(owner)
 	form.add_child(definition_owner)
+	unit_section_controls.append(definition_owner)
 	for field in WorldPackageScript.UNIT_FIELDS:
 		if field != "owner":
 			unit_fields[field] = _add_field(form, field.replace("_", " ").capitalize())
+			unit_section_controls.append(unit_fields[field])
 	_add_button(form, "Apply Changes", apply_definition_changes)
 	_add_button(form, "New Definition", prepare_new_definition)
 	_add_button(form, "Duplicate", prepare_duplicate_definition)
@@ -553,6 +562,7 @@ func load_definition_form(index: int) -> void:
 	definition_category.select(WorldPackageScript.CATEGORIES.find(definition.category))
 	definition_scene.text = definition.scene_path
 	_load_unit_fields(definition)
+	refresh_unit_field_visibility()
 
 
 func apply_definition_changes() -> void:
@@ -580,6 +590,7 @@ func prepare_duplicate_definition() -> void:
 	definition_category.select(WorldPackageScript.CATEGORIES.find(source.category))
 	definition_scene.text = source.scene_path
 	_load_unit_fields(source)
+	refresh_unit_field_visibility()
 	status("Review the duplicate ID, then choose Create Definition")
 
 
@@ -592,6 +603,7 @@ func prepare_new_definition() -> void:
 	definition_category.select(1)
 	definition_scene.text = ""
 	_load_unit_fields({})
+	refresh_unit_field_visibility()
 	status("Enter all definition fields, then choose Create Definition")
 
 
@@ -629,6 +641,12 @@ func _unit_form_data() -> Dictionary:
 	for field in unit_fields:
 		data[field] = float(unit_fields[field].text)
 	return data
+
+
+func refresh_unit_field_visibility() -> void:
+	var is_unit := definition_category.get_item_text(definition_category.selected) == "unit"
+	for control in unit_section_controls:
+		control.visible = is_unit
 
 
 func delete_definition() -> void:
