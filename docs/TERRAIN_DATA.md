@@ -63,6 +63,12 @@ Surface identity is the stable `surface_id`, resolved through the world catalog.
 
 Each cell has one to four ordered uint8 weights totaling exactly 255. Layer 0 is the non-removable base. Painting increases the selected layer by `round(255 × opacity × falloff)` and proportionally reduces other layers; integer division rounds down and remaining units are removed in stable layer order. Erase transfers weight to layer 0. Add initializes zero weight, replace preserves weights, reorder moves weights with stable IDs, and remove transfers its weight to layer 0. In-use replace/remove shows affected cell and total-weight counts before one atomic history transaction.
 
+### Cliffs, ramps, water, and shores
+
+Cliff levels are per-cell signed integers in `[-16,16]`; each level contributes exactly 200 cm above the continuous corner heights. Cardinal neighbors may differ by at most one unless their shared edge has an explicit ramp record. Sculpt tools never change cliff levels. Ramps are stable `{x,z,direction}` records, are traversable, and suppress the vertical barrier on that edge. Invalid topology is rejected rather than repaired. `style_id` changes presentation without changing topology.
+
+Water is one optional horizontal plane at `level_cm`. Cell-center depth is the plane minus bilinear terrain height and the cell cliff contribution: `<=0` is dry, `(0,100]` cm is shallow, and `>100` cm is deep. Shores are algorithm-versioned derived east/south dry-to-wet edges in row-major order. They are regenerated rather than saved, so regeneration is seam-safe and idempotent.
+
 Resize, reset, paste, layer lifecycle, pathing rebuild, and runtime build are previewed transactions. They report changed/cropped samples and affected objects/spawns, commit all canonical files or none, and respond to cancellation within 250 ms.
 
 ## Object and spawn grounding

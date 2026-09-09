@@ -3,6 +3,7 @@ extends Control
 const WorldPackageScript = preload("res://src/domain/world_package.gd")
 const TerrainSculptorScript = preload("res://src/domain/terrain_sculptor.gd")
 const TerrainSurfacePainterScript = preload("res://src/domain/terrain_surface_painter.gd")
+const TerrainCliffWaterScript = preload("res://src/domain/terrain_cliff_water.gd")
 const DEFAULT_PACKAGE := "res://worlds/crimsdale"
 
 var package = WorldPackageScript.new()
@@ -47,6 +48,12 @@ var surface_radius: SpinBox
 var surface_opacity: SpinBox
 var surface_falloff: OptionButton
 var surface_erase: CheckBox
+var cliff_dialog: Window
+var cliff_style: OptionButton
+var cliff_water_enabled: CheckBox
+var cliff_water_level: SpinBox
+var cliff_mode := ""
+var cliff_ramp_direction: OptionButton
 var pending_after_save: Callable
 var definition_list: ItemList
 var definition_id_field: LineEdit
@@ -73,6 +80,7 @@ func _ready() -> void:
 	_build_viewport()
 	_build_sculpt_hud()
 	_build_surface_editor()
+	_build_cliff_water_editor()
 	_build_object_editor()
 	_build_terrain_editor()
 	_build_package_dialogs()
@@ -101,6 +109,7 @@ func _build_toolbar() -> void:
 	_add_button(bar, "Terrain", show_terrain_editor)
 	_add_button(bar, "Sculpt", toggle_sculpt_mode)
 	_add_button(bar, "Surfaces", show_surface_editor)
+	_add_button(bar, "Cliffs & Water", show_cliff_water_editor)
 	bar.add_spacer(false)
 	_add_button(bar, "Undo", perform_undo)
 	_add_button(bar, "Redo", perform_redo)
@@ -454,6 +463,95 @@ func enable_surface_paint() -> void:
 	status("Surface paint: drag to paint; Escape cancels a stroke")
 
 
+func _build_cliff_water_editor() -> void:
+	cliff_dialog = Window.new()
+	cliff_dialog.title = "Cliffs & Water"
+	cliff_dialog.size = Vector2i(500, 500)
+	cliff_dialog.close_requested.connect(cliff_dialog.hide)
+	add_child(cliff_dialog)
+	var form := VBoxContainer.new()
+	form.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	form.offset_left = 18
+	form.offset_top = 18
+	form.offset_right = -18
+	form.offset_bottom = -18
+	cliff_dialog.add_child(form)
+	var help := Label.new()
+	help.text = "Cliffs change in 2 metre levels. Choose a click tool, then click terrain cells. Ramps explicitly mark traversable cliff edges."
+	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	form.add_child(help)
+	cliff_style = OptionButton.new()
+	var catalog = JSON.parse_string(FileAccess.get_file_as_string("res://content/crimsdale/terrain_cliffs.json"))
+	for style in catalog.get("styles", []):
+		cliff_style.add_item("%s — %s" % [style.display_name, style.style_id])
+		cliff_style.set_item_metadata(cliff_style.item_count - 1, style.style_id)
+	form.add_child(cliff_style)
+	_add_button(form, "Apply Cliff Style", apply_cliff_style)
+	_add_button(form, "Raise Cliff Cell", set_cliff_mode.bind("raise"))
+	_add_button(form, "Lower Cliff Cell", set_cliff_mode.bind("lower"))
+	cliff_ramp_direction = OptionButton.new()
+	for direction in ["north", "east", "south", "west"]:
+		cliff_ramp_direction.add_item(direction.capitalize())
+		cliff_ramp_direction.set_item_metadata(cliff_ramp_direction.item_count - 1, direction)
+	form.add_child(cliff_ramp_direction)
+	_add_button(form, "Author Traversable Ramp", set_cliff_mode.bind("ramp"))
+	cliff_water_enabled = CheckBox.new()
+	cliff_water_enabled.text = "Enable global water"
+	form.add_child(cliff_water_enabled)
+	cliff_water_level = _hud_spin(form, "Water level cm", -32768, 32767, 0, 1)
+	_add_button(form, "Apply & Preview Water", apply_water)
+
+
+func show_cliff_water_editor() -> void:
+	if package.terrain == null:
+		show_blocking_error("Create terrain before editing cliffs or water.")
+		return
+	cliff_water_enabled.button_pressed = package.terrain.data.water.enabled
+	cliff_water_level.value = package.terrain.data.water.level_cm
+	var style_index := -1
+	for index in cliff_style.item_count:
+		if cliff_style.get_item_metadata(index) == package.terrain.data.cliffs.style_id:
+			style_index = index
+	if style_index >= 0: cliff_style.select(style_index)
+	cliff_dialog.popup_centered()
+
+
+func apply_cliff_style() -> void:
+	if TerrainCliffWaterScript.new(package.terrain).set_style(cliff_style.get_item_metadata(cliff_style.selected)):
+		refresh_all()
+		status("Cliff style replaced without changing topology")
+
+
+func set_cliff_mode(mode: String) -> void:
+	cliff_mode = mode
+	cliff_dialog.hide()
+	status("%s: click a terrain cell; Escape returns to selection" % mode.capitalize())
+
+
+func apply_water() -> void:
+	if TerrainCliffWaterScript.new(package.terrain).set_water(cliff_water_enabled.button_pressed, roundi(cliff_water_level.value)):
+		refresh_all()
+		status("Water preview updated")
+
+
+func apply_cliff_at(screen_position: Vector2) -> void:
+	var point := ground_position(screen_position)
+	var grid: Dictionary = package.terrain.data.grid
+	var x := floori((point.x - float(grid.origin_x_m)) / float(grid.cell_size_m))
+	var z := floori((point.z - float(grid.origin_z_m)) / float(grid.cell_size_m))
+	var tools = TerrainCliffWaterScript.new(package.terrain)
+	var changed := false
+	if cliff_mode == "raise": changed = tools.change_level(x, z, 1)
+	elif cliff_mode == "lower": changed = tools.change_level(x, z, -1)
+	elif cliff_mode == "ramp": changed = tools.add_ramp(x, z, cliff_ramp_direction.get_item_metadata(cliff_ramp_direction.selected))
+	if changed:
+		refresh_all()
+		status("%s applied at cell %d, %d" % [cliff_mode.capitalize(), x, z])
+	else:
+		package.errors = package.terrain.errors
+		show_errors()
+
+
 func refresh_all() -> void:
 	refresh_palette()
 	refresh_world()
@@ -486,24 +584,48 @@ func refresh_terrain_preview() -> void:
 		surface_colors[entry.surface_id] = Color(entry.preview_color_srgb)
 	var layer_ids: Array = package.terrain.data.surfaces.layer_ids
 	var weights: Array = surface_painter.preview_weights if surface_painter != null and surface_painter.active else package.terrain.data.surfaces.weights
-	for z in int(grid.depth_cells) + 1:
-		for x in int(grid.width_cells) + 1:
-			var height_index := z * (int(grid.width_cells) + 1) + x
-			var height_cm: int = sculptor.preview_height_cm(height_index) if sculptor != null and sculptor.active else int(grid.heights_cm[height_index])
-			vertices.append(Vector3(float(grid.origin_x_m) + x * float(grid.cell_size_m), float(height_cm) / 100.0, float(grid.origin_z_m) + z * float(grid.cell_size_m)))
-			var cell_x := mini(x, int(grid.width_cells) - 1)
-			var cell_z := mini(z, int(grid.depth_cells) - 1)
-			var cell_index := cell_z * int(grid.width_cells) + cell_x
+	var cliff_tools = TerrainCliffWaterScript.new(package.terrain)
+	for z in int(grid.depth_cells):
+		for x in int(grid.width_cells):
+			var cell_index := z * int(grid.width_cells) + x
 			var blended := Color(0, 0, 0, 1)
 			for layer in layer_ids.size():
 				blended += surface_colors.get(layer_ids[layer], Color.MAGENTA) * (float(weights[cell_index * layer_ids.size() + layer]) / 255.0)
 			blended.a = 1.0
-			colors.append(blended)
-	for z in int(grid.depth_cells):
-		for x in int(grid.width_cells):
-			var north_west := z * (int(grid.width_cells) + 1) + x
-			var south_west := north_west + int(grid.width_cells) + 1
-			indices.append_array([north_west, south_west, north_west + 1, north_west + 1, south_west, south_west + 1])
+			var level_m := float(package.terrain.data.cliffs.levels[cell_index]) * 2.0
+			var x0 := float(grid.origin_x_m) + x * float(grid.cell_size_m)
+			var x1 := x0 + float(grid.cell_size_m)
+			var z0 := float(grid.origin_z_m) + z * float(grid.cell_size_m)
+			var z1 := z0 + float(grid.cell_size_m)
+			var width := int(grid.width_cells) + 1
+			var heights := [z * width + x, (z + 1) * width + x, z * width + x + 1, (z + 1) * width + x + 1]
+			var corners: Array[Vector3] = []
+			for corner in 4:
+				var height_cm: int = sculptor.preview_height_cm(heights[corner]) if sculptor != null and sculptor.active else int(grid.heights_cm[heights[corner]])
+				var px := x0 if corner < 2 else x1
+				var pz := z0 if corner % 2 == 0 else z1
+				corners.append(Vector3(px, float(height_cm) / 100.0 + level_m, pz))
+			if x > 0 and cliff_tools.edge_has_ramp(x, z, "west"):
+				var west_delta := (float(package.terrain.data.cliffs.levels[cell_index - 1]) * 2.0) - level_m
+				corners[0].y += west_delta; corners[1].y += west_delta
+			if x + 1 < int(grid.width_cells) and cliff_tools.edge_has_ramp(x, z, "east"):
+				var east_delta := (float(package.terrain.data.cliffs.levels[cell_index + 1]) * 2.0) - level_m
+				corners[2].y += east_delta; corners[3].y += east_delta
+			if z > 0 and cliff_tools.edge_has_ramp(x, z, "north"):
+				var north_delta := (float(package.terrain.data.cliffs.levels[cell_index - int(grid.width_cells)]) * 2.0) - level_m
+				corners[0].y += north_delta; corners[2].y += north_delta
+			if z + 1 < int(grid.depth_cells) and cliff_tools.edge_has_ramp(x, z, "south"):
+				var south_delta := (float(package.terrain.data.cliffs.levels[cell_index + int(grid.width_cells)]) * 2.0) - level_m
+				corners[1].y += south_delta; corners[3].y += south_delta
+			_append_mesh_quad(vertices, colors, indices, corners[0], corners[1], corners[2], corners[3], blended)
+			if x + 1 < int(grid.width_cells):
+				var east_level := float(package.terrain.data.cliffs.levels[cell_index + 1]) * 2.0
+				if not is_equal_approx(level_m, east_level) and not cliff_tools.edge_has_ramp(x, z, "east"):
+					_append_mesh_quad(vertices, colors, indices, corners[2], corners[3], corners[2] + Vector3(0, east_level - level_m, 0), corners[3] + Vector3(0, east_level - level_m, 0), Color("686761"))
+			if z + 1 < int(grid.depth_cells):
+				var south_level := float(package.terrain.data.cliffs.levels[cell_index + int(grid.width_cells)]) * 2.0
+				if not is_equal_approx(level_m, south_level) and not cliff_tools.edge_has_ramp(x, z, "south"):
+					_append_mesh_quad(vertices, colors, indices, corners[1], corners[3], corners[1] + Vector3(0, south_level - level_m, 0), corners[3] + Vector3(0, south_level - level_m, 0), Color("686761"))
 	arrays[Mesh.ARRAY_VERTEX] = vertices
 	arrays[Mesh.ARRAY_INDEX] = indices
 	arrays[Mesh.ARRAY_COLOR] = colors
@@ -516,6 +638,58 @@ func refresh_terrain_preview() -> void:
 	material.roughness = 1.0
 	terrain_mesh.material_override = material
 	world_root.add_child(terrain_mesh)
+	refresh_water_preview()
+
+
+func _append_mesh_quad(vertices: PackedVector3Array, colors: PackedColorArray, indices: PackedInt32Array, north_west: Vector3, south_west: Vector3, north_east: Vector3, south_east: Vector3, color: Color) -> void:
+	var start := vertices.size()
+	vertices.append_array([north_west, south_west, north_east, south_east])
+	for ignored in 4: colors.append(color)
+	indices.append_array([start, start + 1, start + 2, start + 2, start + 1, start + 3])
+
+
+func refresh_water_preview() -> void:
+	var existing := world_root.get_node_or_null("WaterPreview")
+	if existing != null: existing.free()
+	if package.terrain == null or not package.terrain.data.water.enabled:
+		return
+	var tools = TerrainCliffWaterScript.new(package.terrain)
+	var grid: Dictionary = package.terrain.data.grid
+	var vertices := PackedVector3Array()
+	var colors := PackedColorArray()
+	var indices := PackedInt32Array()
+	var y := float(package.terrain.data.water.level_cm) / 100.0 + 0.02
+	for z in int(grid.depth_cells):
+		for x in int(grid.width_cells):
+			var water_class := tools.water_class_at_cell(x, z)
+			if water_class == "dry": continue
+			var start := vertices.size()
+			var x0 := float(grid.origin_x_m) + x * float(grid.cell_size_m)
+			var z0 := float(grid.origin_z_m) + z * float(grid.cell_size_m)
+			var x1 := x0 + float(grid.cell_size_m)
+			var z1 := z0 + float(grid.cell_size_m)
+			vertices.append_array([Vector3(x0,y,z0), Vector3(x0,y,z1), Vector3(x1,y,z0), Vector3(x1,y,z1)])
+			var color := Color(0.20,0.65,0.82,0.48) if water_class == "shallow" else Color(0.08,0.25,0.55,0.62)
+			for ignored in 4: colors.append(color)
+			indices.append_array([start,start+1,start+2,start+2,start+1,start+3])
+	if vertices.is_empty(): return
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	arrays[Mesh.ARRAY_COLOR] = colors
+	arrays[Mesh.ARRAY_INDEX] = indices
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	var preview := MeshInstance3D.new()
+	preview.name = "WaterPreview"
+	preview.mesh = mesh
+	preview.set_meta("shore_count", tools.derived_shores().size())
+	var material := StandardMaterial3D.new()
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.vertex_color_use_as_albedo = true
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	preview.material_override = material
+	world_root.add_child(preview)
 
 
 func refresh_palette() -> void:
@@ -684,6 +858,9 @@ func refresh_inspector() -> void:
 
 
 func _on_viewport_input(event: InputEvent) -> void:
+	if not cliff_mode.is_empty() and event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+		apply_cliff_at(event.position)
+		return
 	if surface_enabled and event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		viewport_container.grab_focus()
 		mouse_position = event.position
@@ -771,7 +948,10 @@ func _on_viewport_input(event: InputEvent) -> void:
 				select_at(event.position)
 	elif event is InputEventKey and event.pressed:
 		if event.keycode == KEY_ESCAPE:
-			if surface_enabled and surface_painter != null and surface_painter.active:
+			if not cliff_mode.is_empty():
+				cliff_mode = ""
+				status("Selection tool")
+			elif surface_enabled and surface_painter != null and surface_painter.active:
 				surface_painter.cancel()
 				status("Surface stroke cancelled")
 			elif sculpt_enabled and sculptor != null and sculptor.active:

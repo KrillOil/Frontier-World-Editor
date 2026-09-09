@@ -81,6 +81,14 @@ func resource_errors() -> Array[String]:
 			for surface_id in terrain.data.surfaces.layer_ids:
 				if not known.has(surface_id):
 					failures.append("Terrain surface '%s' is unresolved in %s" % [surface_id, catalog_path])
+		var cliff_catalog_path := "res://content/%s/terrain_cliffs.json" % world.get("world_id", "")
+		var cliff_catalog = JSON.parse_string(FileAccess.get_file_as_string(cliff_catalog_path))
+		var known_cliffs := {}
+		if cliff_catalog is Dictionary:
+			for style in cliff_catalog.get("styles", []):
+				known_cliffs[style.get("style_id", "")] = true
+		if not known_cliffs.has(terrain.data.cliffs.style_id):
+			failures.append("Terrain cliff style '%s' is unresolved in %s" % [terrain.data.cliffs.style_id, cliff_catalog_path])
 	return failures
 
 

@@ -1,0 +1,7 @@
+{
+  "catalog_format_version": 1,
+  "styles": [
+    {"display_name":"Crimsdale Stone","frontier_mesh_key":"terrain/cliff_crimsdale_stone","preview_color_srgb":"#686761","style_id":"cliff_crimsdale_stone"},
+    {"display_name":"Dark Highland Rock","frontier_mesh_key":"terrain/cliff_dark_highland","preview_color_srgb":"#464b4d","style_id":"cliff_dark_highland"}
+  ]
+}
