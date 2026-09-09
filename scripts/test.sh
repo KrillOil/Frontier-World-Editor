@@ -16,3 +16,4 @@ fi
 "$godot_bin" --headless --path "$project_root" --script res://tests/test_terrain_contract.gd
 "$godot_bin" --headless --path "$project_root" --script res://tests/test_terrain_foundation.gd
 "$godot_bin" --headless --path "$project_root" --script res://tests/test_terrain_sculptor.gd
+"$godot_bin" --headless --path "$project_root" --script res://tests/test_terrain_surfaces.gd

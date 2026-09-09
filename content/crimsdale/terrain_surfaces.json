@@ -1,0 +1,45 @@
+{
+  "catalog_format_version": 1,
+  "surfaces": [
+    {
+      "display_name": "Crimsdale Grass",
+      "editor_source_path": "res://content/crimsdale/surfaces/grass.svg",
+      "frontier_material_key": "terrain/crimsdale_grass",
+      "preview_color_srgb": "#506b3d",
+      "resource_sha256": "66a2d274a2b2916f4d25684d7a9c1473cca1dd850e6a5c9e7b0ea505995726b0",
+      "source_color_space": "srgb",
+      "surface_id": "surface_crimsdale_grass",
+      "uv_scale_m": 4
+    },
+    {
+      "display_name": "Packed Dirt",
+      "editor_source_path": "res://content/crimsdale/surfaces/dirt.svg",
+      "frontier_material_key": "terrain/crimsdale_dirt",
+      "preview_color_srgb": "#76583b",
+      "resource_sha256": "94f30ab8fb77c593653c053870d0f9bb669e8f721ea8ec0a59b8caf8fadfb58c",
+      "source_color_space": "srgb",
+      "surface_id": "surface_crimsdale_dirt",
+      "uv_scale_m": 3
+    },
+    {
+      "display_name": "Crimsdale Stone",
+      "editor_source_path": "res://content/crimsdale/surfaces/stone.svg",
+      "frontier_material_key": "terrain/crimsdale_stone",
+      "preview_color_srgb": "#77766e",
+      "resource_sha256": "439d10b3cda547241207973bd45a9dd20f9fe1338cf4141a6ef4f10fbc658ceb",
+      "source_color_space": "srgb",
+      "surface_id": "surface_crimsdale_stone",
+      "uv_scale_m": 2
+    },
+    {
+      "display_name": "Dry Grass",
+      "editor_source_path": "res://content/crimsdale/surfaces/dry_grass.svg",
+      "frontier_material_key": "terrain/crimsdale_dry_grass",
+      "preview_color_srgb": "#817545",
+      "resource_sha256": "2aca705b6585b07d5c1cfe01ec0033deef8a07beb27e0e8aa7761a202fd4f205",
+      "source_color_space": "srgb",
+      "surface_id": "surface_crimsdale_dry_grass",
+      "uv_scale_m": 4
+    }
+  ]
+}

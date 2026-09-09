@@ -54,5 +54,6 @@ The test command verifies the exact Godot version and runs the shell checks head
 - Unit definitions: author ownership, health, movement, selection, and basic combat values
 - Terrain: create an 8–512-cell base grid, edit bounds with a nine-point anchor, reset through an impact confirmation, and undo or redo structural changes
 - Sculpt: choose Raise, Lower, Flatten, Smooth, Plateau, or Noise; tune radius/strength/falloff in the viewport HUD; drag to apply one undoable stroke; press `Escape` before release to cancel
+- Surfaces: browse the Crimsdale texture palette, manage up to four portable layers, and paint or erase normalized blends with live viewport feedback
 
 `Test World` uses `FRONTIER_EXECUTABLE` and the accepted `--world-package <path> --spawn player_start` contract. Set `FRONTIER_PROJECT_PATH` as well when the executable is Godot 4.7.1 and Frontier is being run from source.
