@@ -1659,11 +1659,14 @@ func test_world() -> void:
 
 
 func launch_test_world() -> void:
-	package.errors = package.validate()
-	package.errors.append_array(package.resource_errors())
-	if not package.errors.is_empty():
+	status("Test World 1/3 — validating authored package")
+	var preflight: Dictionary = package.test_world_preflight({"renderer": "godot_4_7_1_forward_plus", "chunk_cells": 32})
+	if not preflight.ok:
+		package.errors = preflight.diagnostics
+		package.errors.append("Recovery: %s" % preflight.recovery)
 		show_errors()
 		return
+	status("Test World 2/3 — terrain cache %s" % preflight.cache.cache_key.left(12))
 	var executable := OS.get_environment("FRONTIER_EXECUTABLE")
 	if executable.is_empty():
 		show_blocking_error("Set FRONTIER_EXECUTABLE to enable Test World")
@@ -1673,7 +1676,7 @@ func launch_test_world() -> void:
 	if process_id <= 0:
 		show_blocking_error("Frontier could not be launched. Check FRONTIER_EXECUTABLE and try again.")
 	else:
-		status("Frontier launched at player_start")
+		status("Test World 3/3 — Frontier launched at player_start")
 
 
 func build_test_world_launch(executable: String, frontier_project_path: String, package_path: String, spawn_id: String) -> Dictionary:

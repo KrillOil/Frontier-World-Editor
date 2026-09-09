@@ -3,6 +3,7 @@ extends RefCounted
 
 const FORMAT_VERSION := 1
 const ALGORITHM_VERSION := 1
+const SUPPORTED_MIGRATIONS: Array[String] = []
 const CELL_SIZES := [0.5, 1.0, 2.0, 4.0]
 const MIN_CELLS := 8
 const MAX_CELLS := 512
@@ -194,6 +195,13 @@ func save(path := "") -> bool:
 
 func serialize() -> String:
 	return _canonical_json(data) + "\n"
+
+
+func migration_preview(candidate: Dictionary) -> Dictionary:
+	var version = candidate.get("terrain_format_version")
+	if version == FORMAT_VERSION:
+		return {"supported": true, "from_version": version, "to_version": FORMAT_VERSION, "changes": [], "requires_backup": false}
+	return {"supported": false, "from_version": version, "to_version": FORMAT_VERSION, "changes": [], "requires_backup": true, "error": "No deterministic migration from terrain format %s to %d is registered" % [version, FORMAT_VERSION]}
 
 
 func mark_saved(path: String) -> void:

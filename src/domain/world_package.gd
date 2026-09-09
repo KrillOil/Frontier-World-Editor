@@ -19,6 +19,8 @@ var _redo: Array[Dictionary] = []
 
 
 func load_from_directory(path: String) -> bool:
+	if not _recover_transaction(path):
+		return false
 	var loaded_definitions = _read_json(path.path_join("definitions.json"))
 	var loaded_world = _read_json(path.path_join("world.json"))
 	if loaded_definitions == null or loaded_world == null:
@@ -328,7 +330,7 @@ func redo() -> bool:
 	return true
 
 
-func save() -> bool:
+func save(failure_after_install := -1) -> bool:
 	errors = validate()
 	errors.append_array(resource_errors())
 	if not errors.is_empty():
@@ -356,7 +358,7 @@ func save() -> bool:
 		if not _write_temporary(terrain_path, terrain.serialize()):
 			return false
 		paths.append(terrain_path)
-	if not _replace_files(paths):
+	if not _replace_files(paths, failure_after_install):
 		return false
 	if terrain != null:
 		terrain.mark_saved(package_path.path_join("terrain.json"))
@@ -388,33 +390,101 @@ func _write_temporary(path: String, content: String) -> bool:
 	return true
 
 
-func _replace_files(paths: Array) -> bool:
+func _replace_files(paths: Array, failure_after_install := -1) -> bool:
+	var transaction_path := package_path.path_join(".world-package-transaction.json")
+	var preexisting := []
+	for path in paths: preexisting.append(FileAccess.file_exists(path))
+	var marker := FileAccess.open(transaction_path, FileAccess.WRITE)
+	if marker == null:
+		errors = ["Save prepare stage: transaction marker could not be written"]
+		return false
+	marker.store_string(JSON.stringify({"version": 1, "paths": paths, "preexisting": preexisting}) + "\n")
+	marker.close()
 	for path in paths:
 		var backup_path: String = path + ".bak"
 		if FileAccess.file_exists(backup_path):
 			DirAccess.remove_absolute(backup_path)
 		if FileAccess.file_exists(path) and DirAccess.rename_absolute(path, backup_path) != OK:
 			errors = ["%s: could not protect the previous valid file" % path]
-			_restore_backups(paths)
+			_restore_backups(paths, preexisting)
 			return false
-	for path in paths:
+	for index in paths.size():
+		var path: String = paths[index]
 		if DirAccess.rename_absolute(path + ".tmp", path) != OK:
 			errors = ["%s: could not install the validated temporary file" % path]
-			_restore_backups(paths)
+			_restore_backups(paths, preexisting)
+			return false
+		if failure_after_install == index + 1:
+			errors = ["Save commit stage: injected failure after %d file(s); previous package restored" % (index + 1)]
+			_restore_backups(paths, preexisting)
 			return false
 	for path in paths:
 		if FileAccess.file_exists(path + ".bak"):
 			DirAccess.remove_absolute(path + ".bak")
+	DirAccess.remove_absolute(transaction_path)
 	return true
 
 
-func _restore_backups(paths: Array) -> void:
-	for path in paths:
+func _restore_backups(paths: Array, preexisting: Array = []) -> void:
+	for index in paths.size():
+		var path: String = paths[index]
 		var backup_path: String = path + ".bak"
 		if FileAccess.file_exists(backup_path):
 			if FileAccess.file_exists(path):
 				DirAccess.remove_absolute(path)
 			DirAccess.rename_absolute(backup_path, path)
+		elif index < preexisting.size() and not preexisting[index] and FileAccess.file_exists(path):
+			DirAccess.remove_absolute(path)
+		if FileAccess.file_exists(path + ".tmp"):
+			DirAccess.remove_absolute(path + ".tmp")
+	if not package_path.is_empty():
+		DirAccess.remove_absolute(package_path.path_join(".world-package-transaction.json"))
+
+
+func _recover_transaction(path: String) -> bool:
+	var transaction_path := path.path_join(".world-package-transaction.json")
+	if not FileAccess.file_exists(transaction_path):
+		return true
+	var marker = _read_json(transaction_path)
+	if not marker is Dictionary or marker.get("version") != 1 or not marker.get("paths") is Array or not marker.get("preexisting") is Array:
+		errors = ["Save recovery stage: invalid transaction marker; preserve the package and restore its .bak files manually"]
+		return false
+	package_path = path
+	_restore_backups(marker.paths, marker.preexisting)
+	return true
+
+
+func terrain_build_identity(build_settings: Dictionary = {}) -> Dictionary:
+	if terrain == null:
+		return {}
+	var resources := resource_errors()
+	if not resources.is_empty():
+		return {"error": "Build validation stage: %s" % " | ".join(resources)}
+	var resource_hashes := _terrain_resource_hashes()
+	var material: String = terrain.serialize() + JSON.stringify(build_settings) + JSON.stringify(resource_hashes) + str(terrain.data.terrain_format_version) + ":" + str(terrain.data.algorithm_version)
+	var context := HashingContext.new()
+	context.start(HashingContext.HASH_SHA256)
+	context.update(material.to_utf8_buffer())
+	return {"cache_key": context.finish().hex_encode(), "terrain_sha256": terrain.serialize().sha256_text(), "resource_hashes": resource_hashes, "schema_version": terrain.data.terrain_format_version, "algorithm_version": terrain.data.algorithm_version, "build_settings": build_settings.duplicate(true)}
+
+
+func test_world_preflight(build_settings: Dictionary = {}) -> Dictionary:
+	var validation := validate()
+	validation.append_array(resource_errors())
+	if not validation.is_empty():
+		return {"ok": false, "stage": "validate", "diagnostics": validation, "recovery": "Fix the named authored domain or resource, save, then retry Test World"}
+	var identity := terrain_build_identity(build_settings)
+	if identity.has("error"):
+		return {"ok": false, "stage": "build", "diagnostics": [identity.error], "recovery": "Resolve the named terrain resource and rebuild"}
+	return {"ok": true, "stage": "launch", "progress": 1.0, "cache": identity, "diagnostics": [], "recovery": ""}
+
+
+func _terrain_resource_hashes() -> Dictionary:
+	var hashes := {}
+	for name in ["terrain_surfaces.json", "terrain_cliffs.json", "terrain_skies.json"]:
+		var path := "res://content/%s/%s" % [world.get("world_id", ""), name]
+		hashes[name] = FileAccess.get_sha256(path) if FileAccess.file_exists(path) else "missing"
+	return hashes
 
 
 func _snapshot() -> void:
