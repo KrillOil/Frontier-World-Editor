@@ -18,7 +18,7 @@ func run() -> void:
 	_check(editor.package.world.get("world_id") == "crimsdale", "Editor opens Crimsdale")
 	_check(editor.world_root.get_node_or_null("crimsdale_fountain_001") != null, "Fountain preview is created")
 	_check(editor.world_root.get_node_or_null("crimsdale_house_001") != null, "House preview is created")
-	_check(editor.definition_list.item_count == 4, "Object Editor lists world and unit definitions")
+	_check(editor.definition_list.item_count == 8, "Object Editor lists world, unit, ability, and item definitions")
 	_check(editor.terrain_dialog != null and editor.terrain_fields.size() == 6, "Terrain workflow exposes explicit dimensions, resolution, height, and origin")
 	editor.terrain_fields.width_cells.text = "8"
 	editor.terrain_fields.depth_cells.text = "8"
@@ -70,6 +70,7 @@ func run() -> void:
 	editor._workflow_paste()
 	_check(editor.package.terrain.can_undo(), "Creator paste is available as one undoable operation")
 	editor.show_scenario_editor()
+	editor.package.remove_scenario()
 	editor._create_scenario()
 	_check(editor.package.scenario != null and editor.scenario_fields.scenario_id.text == "crimsdale_guided_tutorial", "Creator can add a scenario document to the open world")
 	editor.scenario_region_fields.region_id.text = "tutorial_start"
@@ -117,7 +118,8 @@ func run() -> void:
 	_check("mission_start via scenario_start" in editor.encounter_preview.text,"Encounter preview identifies its activation sequence, membership, and labeled bounds")
 	var guard: Dictionary = editor.package.find_definition("unit_crimsdale_guard")
 	_check(guard.owner == "player" and guard.max_health == 120.0, "Crimsdale guard exposes authored gameplay fields")
-	editor.load_definition_form(2 if editor.definition_list.get_item_metadata(2) == "unit_crimsdale_guard" else 3)
+	for definition_index in editor.definition_list.item_count:
+		if editor.definition_list.get_item_metadata(definition_index)=="unit_crimsdale_guard":editor.load_definition_form(definition_index);break
 	_check(editor.unit_fields.max_health.text == "120.0", "Object Editor loads unit gameplay values")
 
 	editor.prepare_new_definition()
