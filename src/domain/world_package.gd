@@ -4,9 +4,12 @@ extends RefCounted
 const TerrainDocumentScript = preload("res://src/domain/terrain_document.gd")
 const ScenarioDocumentScript = preload("res://src/domain/scenario_document.gd")
 const FORMAT_VERSION := 1
-const CATEGORIES := ["building", "prop", "landmark", "unit"]
+const CATEGORIES := ["building", "prop", "landmark", "unit", "ability", "item"]
 const ID_PATTERN := "^[a-z][a-z0-9_]*$"
 const UNIT_FIELDS := ["owner", "max_health", "movement_speed", "selection_radius", "attack_damage", "attack_interval", "attack_range", "acquisition_range"]
+const HERO_FIELDS := ["hero", "max_mana", "starting_level", "starting_experience", "strength", "agility", "intellect", "ability_ids", "inventory_limit", "pickup_behavior"]
+const ABILITY_FIELDS := ["ability_mode", "damage", "cast_range", "cooldown_s", "mana_cost", "area_radius", "chain_count", "presentation"]
+const ITEM_FIELDS := ["item_kind", "effect_stat", "effect_amount", "feedback_text"]
 const OWNERS := ["player", "ally", "neutral", "hostile"]
 
 var package_path := ""
@@ -64,7 +67,9 @@ func load_from_directory(path: String) -> bool:
 
 
 func validate() -> Array[String]:
-	return validate_data({"format_version": FORMAT_VERSION, "definitions": definitions}, world)
+	var failures:=validate_data({"format_version": FORMAT_VERSION, "definitions": definitions}, world)
+	if scenario!=null:failures.append_array(_scenario_definition_errors())
+	return failures
 
 
 func resource_errors() -> Array[String]:
@@ -147,10 +152,13 @@ func validate_data(definition_document: Variant, world_document: Variant) -> Arr
 		if not definition is Dictionary:
 			failures.append("%s must be an object" % context)
 			continue
-		var allowed_fields := ["definition_id", "display_name", "category", "scene_path"]
+		var allowed_fields := ["definition_id", "display_name", "category", "scene_path"];var optional_fields:=[]
 		if definition.get("category") == "unit":
 			allowed_fields.append_array(UNIT_FIELDS)
-		_validate_keys(definition, allowed_fields, context, failures)
+			optional_fields.append_array(HERO_FIELDS)
+		elif definition.get("category") == "ability":allowed_fields.append_array(ABILITY_FIELDS)
+		elif definition.get("category") == "item":allowed_fields.append_array(ITEM_FIELDS)
+		_validate_keys_optional(definition, allowed_fields, optional_fields, context, failures)
 		var definition_id: String = definition.get("definition_id", "")
 		if not _valid_id(definition_id):
 			failures.append("%s.definition_id is invalid" % context)
@@ -166,6 +174,15 @@ func validate_data(definition_document: Variant, world_document: Variant) -> Arr
 			failures.append("%s.scene_path is required" % context)
 		if definition.get("category") == "unit":
 			_validate_unit_definition(definition, context, failures)
+		elif definition.get("category")=="ability":_validate_ability_definition(definition,context,failures)
+		elif definition.get("category")=="item":_validate_item_definition(definition,context,failures)
+
+	var definition_by_id:={};for definition in definition_document.definitions:
+		if definition is Dictionary:definition_by_id[definition.get("definition_id","")]=definition
+	for definition in definition_document.definitions:
+		if not definition is Dictionary or definition.get("category")!="unit":continue
+		for ability_id in definition.get("ability_ids",[]):
+			if definition_by_id.get(ability_id,{}).get("category")!="ability":failures.append("definitions.json: unit '%s' references unknown ability '%s'"%[definition.get("definition_id"),ability_id])
 
 	var instance_ids := {}
 	for index in world_document.objects.size():
@@ -235,12 +252,18 @@ func update_definition(definition_id: String, changes: Dictionary) -> bool:
 		errors = ["Unknown definition '%s'" % definition_id]
 		return false
 	_snapshot()
-	for key in ["display_name", "category", "scene_path"] + UNIT_FIELDS:
+	for key in ["display_name", "category", "scene_path"] + UNIT_FIELDS + HERO_FIELDS + ABILITY_FIELDS + ITEM_FIELDS:
 		if changes.has(key):
 			definition[key] = changes[key]
 	for key in UNIT_FIELDS:
 		if definition.get("category") != "unit":
 			definition.erase(key)
+	for key in HERO_FIELDS:
+		if definition.get("category")!="unit":definition.erase(key)
+	for key in ABILITY_FIELDS:
+		if definition.get("category")!="ability":definition.erase(key)
+	for key in ITEM_FIELDS:
+		if definition.get("category")!="item":definition.erase(key)
 	return _accept_change()
 
 
@@ -261,6 +284,42 @@ func _validate_unit_definition(definition: Dictionary, context: String, failures
 		if definition.get("acquisition_range") is int or definition.get("acquisition_range") is float:
 			if float(definition.acquisition_range) < float(definition.attack_range):
 				failures.append("%s.acquisition_range must be at least attack_range" % context)
+	if definition.has("hero"):
+		for field in HERO_FIELDS:
+			if not definition.has(field):failures.append("%s: hero unit missing '%s'"%[context,field])
+		if definition.get("hero")!=true:failures.append("%s.hero must be true when hero fields are present"%context)
+		for field in ["max_mana","starting_level","strength","agility","intellect","inventory_limit"]:
+			if float(definition.get(field,0))<=0:failures.append("%s.%s must be greater than zero"%[context,field])
+		if float(definition.get("starting_experience",-1))<0:failures.append("%s.starting_experience must be zero or greater"%context)
+		if not definition.get("ability_ids") is Array:failures.append("%s.ability_ids must be an array"%context)
+		if definition.get("pickup_behavior") not in ["automatic","manual"]:failures.append("%s.pickup_behavior is invalid"%context)
+
+
+func _validate_ability_definition(definition:Dictionary,context:String,failures:Array[String])->void:
+	for field in ABILITY_FIELDS:
+		if not definition.has(field):failures.append("%s: missing ability field '%s'"%[context,field])
+	if definition.get("ability_mode") not in ["targeted","area","chained_damage"]:failures.append("%s.ability_mode is invalid"%context)
+	for field in ["damage","cast_range","cooldown_s","mana_cost","area_radius"]:
+		if float(definition.get(field,-1))<0:failures.append("%s.%s must be zero or greater"%[context,field])
+	if int(definition.get("chain_count",0))<1:failures.append("%s.chain_count must be at least one"%context)
+	if not definition.get("presentation") is String or definition.get("presentation","").is_empty():failures.append("%s.presentation is required"%context)
+
+
+func _validate_item_definition(definition:Dictionary,context:String,failures:Array[String])->void:
+	for field in ITEM_FIELDS:
+		if not definition.has(field):failures.append("%s: missing item field '%s'"%[context,field])
+	if definition.get("item_kind") not in ["consumable","permanent_stat"]:failures.append("%s.item_kind is invalid"%context)
+	if definition.get("effect_stat") not in ["health","mana","strength","agility","intellect"]:failures.append("%s.effect_stat is invalid"%context)
+	if float(definition.get("effect_amount",0))<=0:failures.append("%s.effect_amount must be greater than zero"%context)
+	if not definition.get("feedback_text") is String or definition.get("feedback_text","").is_empty():failures.append("%s.feedback_text is required"%context)
+
+
+func _scenario_definition_errors()->Array[String]:
+	var failures:Array[String]=[];var by_id:={};for definition in definitions:by_id[definition.definition_id]=definition
+	for sequence in scenario.data.get("sequences",[]):
+		for action in sequence.actions:
+			if action.get("type")=="grant_reward" and by_id.get(action.get("reward_id"),{}).get("category")!="item":failures.append("scenario.json: sequence '%s' reward '%s' is not an item definition"%[sequence.sequence_id,action.get("reward_id")])
+	return failures
 
 
 func delete_definition(definition_id: String) -> bool:
@@ -562,11 +621,15 @@ func _valid_id(value: Variant) -> bool:
 
 
 func _validate_keys(data: Dictionary, allowed: Array, context: String, failures: Array[String]) -> void:
-	for key in allowed:
+	_validate_keys_optional(data,allowed,[],context,failures)
+
+
+func _validate_keys_optional(data:Dictionary,required:Array,optional:Array,context:String,failures:Array[String])->void:
+	for key in required:
 		if not data.has(key):
 			failures.append("%s: missing required field '%s'" % [context, key])
 	for key in data.keys():
-		if key not in allowed:
+		if key not in required and key not in optional:
 			failures.append("%s: unknown field '%s'" % [context, key])
 
 
