@@ -971,18 +971,25 @@ func _refresh_cinematics()->void:
 	cinematic_list.clear();cinematic_step_list.clear()
 	for index in package.scenario.data.cinematics.size():
 		var cinematic=package.scenario.data.cinematics[index]
-		if not cinematic is Dictionary:
-			cinematic_list.add_item("Invalid cinematic entry %d — restore or remove this entry"%(index+1));cinematic_list.set_item_metadata(cinematic_list.item_count-1,{"invalid_index":index});continue
+		if not cinematic is Dictionary or not cinematic.get("steps") is Array:
+			var stable_id:=str(cinematic.get("cinematic_id","")) if cinematic is Dictionary else "";cinematic_list.add_item("Invalid cinematic%s (entry %d) — select Delete Cinematic to remove"%[" '%s'"%stable_id if not stable_id.is_empty() else "",index+1]);cinematic_list.set_item_metadata(cinematic_list.item_count-1,{"invalid_index":index,"stable_id":stable_id});continue
 		cinematic_list.add_item("%s  [%s]"%[cinematic.get("cinematic_id","unnamed"),"skippable" if cinematic.get("skippable",false) else "locked"]);cinematic_list.set_item_metadata(cinematic_list.item_count-1,cinematic.get("cinematic_id",""))
 
 
 func _selected_cinematic_id()->String:
-	var selected:=cinematic_list.get_selected_items();return "" if selected.is_empty() else cinematic_list.get_item_metadata(selected[0])
+	var selected:=cinematic_list.get_selected_items()
+	if selected.is_empty():return ""
+	var metadata=cinematic_list.get_item_metadata(selected[0]);return str(metadata.get("stable_id","")) if metadata is Dictionary else str(metadata)
 
 
 func _load_cinematic(index:int)->void:
-	var cinematic:Dictionary=package.scenario._find(package.scenario.data.cinematics,"cinematic_id",cinematic_list.get_item_metadata(index));cinematic_fields.cinematic_id.text=cinematic.cinematic_id;cinematic_fields.cinematic_id.editable=false;cinematic_fields.skippable.button_pressed=cinematic.skippable;cinematic_fields.letterbox.button_pressed=cinematic.get("letterbox",false);cinematic_fields.control_lock.button_pressed=cinematic.get("control_lock",false);cinematic_step_list.clear()
-	for step in cinematic.steps:
+	var metadata=cinematic_list.get_item_metadata(index);cinematic_step_list.clear()
+	if metadata is Dictionary:
+		cinematic_fields.cinematic_id.text=str(metadata.get("stable_id",""));cinematic_fields.cinematic_id.editable=false;cinematic_preview.text="This cinematic entry is malformed. Select Delete Cinematic to remove it, then recreate it.";status("Invalid cinematic entry selected — Delete Cinematic is available");return
+	var cinematic:Dictionary=package.scenario._find(package.scenario.data.cinematics,"cinematic_id",str(metadata))
+	if cinematic.is_empty():status("Cinematic entry could not be loaded");return
+	cinematic_fields.cinematic_id.text=cinematic.get("cinematic_id","");cinematic_fields.cinematic_id.editable=false;cinematic_fields.skippable.button_pressed=cinematic.get("skippable",false);cinematic_fields.letterbox.button_pressed=cinematic.get("letterbox",false);cinematic_fields.control_lock.button_pressed=cinematic.get("control_lock",false)
+	for step in cinematic.get("steps",[]):
 		var summary:=_cinematic_step_summary(step);cinematic_step_list.add_item(summary);cinematic_step_list.set_item_tooltip(cinematic_step_list.item_count-1,summary)
 
 
@@ -998,6 +1005,12 @@ func _update_cinematic()->void:
 
 
 func _delete_cinematic()->void:
+	var selected:=cinematic_list.get_selected_items();if selected.is_empty():status("Select a cinematic");return
+	var metadata=cinematic_list.get_item_metadata(selected[0])
+	if metadata is Dictionary:
+		if package.scenario.remove_invalid_collection_entry("cinematics",int(metadata.invalid_index),package.world):_refresh_cinematics();refresh_all();status("Invalid cinematic entry removed")
+		else:package.errors=package.scenario.errors;show_errors()
+		return
 	var id:=_selected_cinematic_id();if id.is_empty():status("Select a cinematic");return
 	if package.scenario.delete_cinematic(id,package.world):cinematic_fields.cinematic_id.editable=true;_refresh_cinematics();refresh_all();status("Cinematic deleted")
 	else:package.errors=package.scenario.errors;show_errors()
@@ -1029,7 +1042,8 @@ func _refresh_cinematic_step_fields()->void:
 		if specs.has(key):cinematic_field_labels[key].text=specs[key];cinematic_fields[key].placeholder_text=specs[key]
 
 
-func _cinematic_step_summary(step:Dictionary)->String:
+func _cinematic_step_summary(step)->String:
+	if not step is Dictionary:return "Invalid timeline step — delete and recreate this step"
 	match step.get("type",""):
 		"dialogue":return "Dialogue — %s: %s (%ss)"%[step.get("speaker_instance_id","missing speaker"),step.get("text",""),step.get("duration_s",0)]
 		"camera":return "Camera — %s (%ss, %ss blend)"%[step.get("region_id","missing region"),step.get("duration_s",0),step.get("blend_s",0)]
@@ -1065,7 +1079,8 @@ func _update_cinematic_step()->void:
 
 func _reselect_cinematic(id:String)->void:
 	for index in cinematic_list.item_count:
-		if cinematic_list.get_item_metadata(index)==id:cinematic_list.select(index);_load_cinematic(index);return
+		var metadata=cinematic_list.get_item_metadata(index);var item_id:=str(metadata.get("stable_id","")) if metadata is Dictionary else str(metadata)
+		if item_id==id:cinematic_list.deselect_all();cinematic_list.select(index);_load_cinematic(index);return
 
 
 func _move_cinematic_step(direction:int)->void:
@@ -1306,23 +1321,29 @@ func _refresh_sequence_list() -> void:
 		return str(a.value.get("sequence_id",""))<str(b.value.get("sequence_id","")))
 	for entry in sequences:
 		var sequence=entry.value
-		if not sequence is Dictionary:
-			sequence_list.add_item("Invalid sequence entry %d — restore or remove this entry"%(entry.index+1));sequence_list.set_item_metadata(sequence_list.item_count-1,{"invalid_index":entry.index});continue
+		if not sequence is Dictionary or not sequence.get("event") is Dictionary or not sequence.get("conditions") is Array or not sequence.get("actions") is Array:
+			var stable_id:=str(sequence.get("sequence_id","")) if sequence is Dictionary else "";sequence_list.add_item("Invalid sequence%s (entry %d) — select Delete Selected Sequence to remove"%[" '%s'"%stable_id if not stable_id.is_empty() else "",entry.index+1]);sequence_list.set_item_metadata(sequence_list.item_count-1,{"invalid_index":entry.index,"stable_id":stable_id});continue
 		sequence_list.add_item("%s  [%s%s]"%[sequence.get("sequence_id","unnamed"),"on" if sequence.get("enabled",false) else "off",", once" if sequence.get("one_shot",false) else ""]);sequence_list.set_item_metadata(sequence_list.item_count-1,sequence.get("sequence_id",""))
 
 
 func _selected_sequence_id()->String:
-	var selected:=sequence_list.get_selected_items();return "" if selected.is_empty() else sequence_list.get_item_metadata(selected[0])
+	var selected:=sequence_list.get_selected_items()
+	if selected.is_empty():return ""
+	var metadata=sequence_list.get_item_metadata(selected[0]);return str(metadata.get("stable_id","")) if metadata is Dictionary else str(metadata)
 
 
 func _load_sequence(index:int)->void:
-	var id:String=sequence_list.get_item_metadata(index);var sequence:Dictionary=package.scenario._find(package.scenario.data.sequences,"sequence_id",id)
-	sequence_fields.sequence_id.text=id;sequence_fields.sequence_id.editable=false;sequence_fields.enabled.button_pressed=sequence.enabled;sequence_fields.one_shot.button_pressed=sequence.one_shot
+	var metadata=sequence_list.get_item_metadata(index);sequence_conditions.clear();sequence_actions.clear()
+	if metadata is Dictionary:
+		sequence_fields.sequence_id.text=str(metadata.get("stable_id",""));sequence_fields.sequence_id.editable=false;status("Invalid sequence entry selected — Delete Selected Sequence is available");return
+	var id:String=str(metadata);var sequence:Dictionary=package.scenario._find(package.scenario.data.sequences,"sequence_id",id)
+	if sequence.is_empty():status("Sequence entry could not be loaded");return
+	sequence_fields.sequence_id.text=id;sequence_fields.sequence_id.editable=false;sequence_fields.enabled.button_pressed=sequence.get("enabled",false);sequence_fields.one_shot.button_pressed=sequence.get("one_shot",false)
 	for item in sequence_event_type.item_count:
-		if sequence_event_type.get_item_metadata(item)==sequence.event.type:sequence_event_type.select(item)
-	_load_typed_references(sequence.event);sequence_conditions.clear();sequence_actions.clear()
-	for condition in sequence.conditions:sequence_conditions.add_item(_typed_summary(condition))
-	for action in sequence.actions:sequence_actions.add_item(_typed_summary(action))
+		if sequence_event_type.get_item_metadata(item)==sequence.get("event",{}).get("type",""):sequence_event_type.select(item)
+	_load_typed_references(sequence.get("event",{}))
+	for condition in sequence.get("conditions",[]):sequence_conditions.add_item(_typed_summary(condition))
+	for action in sequence.get("actions",[]):sequence_actions.add_item(_typed_summary(action))
 	_update_sequence_signature("event");status("Selected sequence '%s'"%id)
 
 
@@ -1348,6 +1369,12 @@ func _duplicate_sequence()->void:
 
 
 func _delete_sequence()->void:
+	var selected:=sequence_list.get_selected_items();if selected.is_empty():status("Select a sequence");return
+	var metadata=sequence_list.get_item_metadata(selected[0])
+	if metadata is Dictionary:
+		if package.scenario.remove_invalid_collection_entry("sequences",int(metadata.invalid_index),package.world):_refresh_sequence_list();refresh_all();status("Invalid sequence entry removed")
+		else:package.errors=package.scenario.errors;show_errors()
+		return
 	var id:String=_selected_sequence_id();if id.is_empty():status("Select a sequence");return
 	if package.scenario.delete_sequence(id,package.world):_refresh_sequence_list();refresh_all();status("Deleted sequence '%s'"%id)
 	else:package.errors=package.scenario.errors;show_errors()
@@ -1386,7 +1413,8 @@ func _move_sequence_action(direction:int)->void:
 func _reload_sequence_by_id(id:String)->void:
 	_refresh_sequence_list()
 	for index in sequence_list.item_count:
-		if sequence_list.get_item_metadata(index)==id:sequence_list.select(index);_load_sequence(index);return
+		var metadata=sequence_list.get_item_metadata(index);var item_id:=str(metadata.get("stable_id","")) if metadata is Dictionary else str(metadata)
+		if item_id==id:sequence_list.deselect_all();sequence_list.select(index);_load_sequence(index);return
 
 
 func _event_from_form()->Dictionary:
@@ -1434,7 +1462,8 @@ func _load_typed_references(value:Dictionary)->void:
 	if value.has("duration_s"):sequence_fields.number.text=str(value.duration_s)
 
 
-func _typed_summary(value:Dictionary)->String:
+func _typed_summary(value)->String:
+	if not value is Dictionary:return "Invalid step — delete and recreate this step"
 	var details:Array[String]=[]
 	for key in value:
 		if key!="type":details.append("%s=%s"%[key,value[key]])
@@ -1546,7 +1575,7 @@ func _open_selected_validation_finding()->void:
 func _select_invalid_validation_entity(list:ItemList,entity_index:int)->void:
 	for item_index in list.item_count:
 		var metadata=list.get_item_metadata(item_index)
-		if metadata is Dictionary and metadata.get("invalid_index",-1)==entity_index:list.select(item_index);return
+		if metadata is Dictionary and metadata.get("invalid_index",-1)==entity_index:list.deselect_all();list.select(item_index);return
 
 
 func show_scenario_editor() -> void:

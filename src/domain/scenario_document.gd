@@ -462,9 +462,18 @@ func _commit(candidate: Dictionary, world: Dictionary) -> bool:
 	history.append(data.duplicate(true)); redo_history.clear(); data = candidate; dirty = true; errors.clear(); return true
 
 
+func remove_invalid_collection_entry(collection:String,index:int,world:Dictionary)->bool:
+	if collection not in ["cinematics","sequences"]:return _fail(["Unsupported recovery collection '%s'"%collection])
+	var values=data.get(collection,[])
+	if not values is Array or index<0 or index>=values.size():return _fail(["Invalid recovery entry index"])
+	var prefix:="scenario.json.%s[%d]"%[collection,index];var current_failures:=validate(data,world)
+	if not current_failures.any(func(message):return str(message).begins_with(prefix)):return _fail(["Entry %d is not malformed"%(index+1)])
+	history.append(data.duplicate(true));redo_history.clear();data[collection].remove_at(index);dirty=true;errors=validate(data,world);return true
+
+
 func _find(values: Array, field: String, id: String) -> Dictionary:
 	for value in values:
-		if value.get(field) == id: return value
+		if value is Dictionary and value.get(field) == id: return value
 	return {}
 
 
