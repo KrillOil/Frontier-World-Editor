@@ -150,7 +150,7 @@ func run() -> void:
 		if editor.definition_list.get_item_metadata(index)=="unit_crimsdale_guard":editor.definition_list.select(index);editor.load_definition_form(index);break
 	editor.hero_fields.hero.text="true";editor.hero_fields.ability_ids.text="ability_storm_arc";editor.apply_definition_changes();editor._preview_gameplay_definition()
 	_check(editor.package.find_definition("unit_crimsdale_guard").ability_ids==["ability_storm_arc"] and "ability_storm_arc" in editor.definition_gameplay_preview.text,"Creator authors and previews a hero ability and item reward without JSON")
-	editor.package.remove_scenario();editor._create_guided_mission_template();_check(editor.package.scenario!=null and editor.package.scenario.data.sequences[-1].actions[-1].result=="victory","Creator generates the complete reusable guided-mission spine from an empty scenario without JSON")
+	editor.open_package("res://worlds/crimsdale");editor.package.remove_scenario();editor._create_guided_mission_template();_check(editor.package.scenario!=null and editor.package.scenario._find(editor.package.scenario.data.sequences,"sequence_id","mission_victory").actions[-1].result=="victory","Creator generates the complete reusable guided-mission spine from an empty scenario without JSON")
 
 	editor.viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
 	root.remove_child(editor)

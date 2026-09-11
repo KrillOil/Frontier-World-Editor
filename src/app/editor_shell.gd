@@ -1409,7 +1409,7 @@ func _create_scenario() -> void:
 func _create_guided_mission_template()->void:
 	if package.scenario!=null:status("Remove the existing scenario before applying a guided mission template");return
 	var scenario=ScenarioDocumentScript.new();var scenario_id:=str(package.world.get("world_id","world"))+"_guided_mission"
-	if scenario.create_guided_mission_template(scenario_id,package.world,package.definitions):package.scenario=scenario;package.scenario_removed=false;_refresh_scenario_form();refresh_all();status("Guided mission template created — review its generic roles and checkpoints")
+	if scenario.create_guided_mission_template(scenario_id,package.world,package.definitions,package.terrain):package.scenario=scenario;package.scenario_removed=false;_refresh_scenario_form();refresh_all();status("Guided mission template created — review its generic roles and checkpoints")
 	else:package.errors=scenario.errors;show_errors()
 
 
