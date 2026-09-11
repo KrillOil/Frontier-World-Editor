@@ -241,6 +241,7 @@ func _build_viewport() -> void:
 	env.ambient_light_color = Color("a5b1c2")
 	env.ambient_light_energy = 0.55
 	environment.environment = env
+	environment.set_meta("preview_environment",env)
 	world_root.add_child(environment)
 	var light := DirectionalLight3D.new()
 	light.name = "SunPreview"
@@ -409,6 +410,7 @@ func _build_surface_editor() -> void:
 	surface_dialog.title = "Terrain Surfaces"
 	surface_dialog.size = Vector2i(520, 430)
 	surface_dialog.close_requested.connect(surface_dialog.hide)
+	surface_dialog.visible = false
 	add_child(surface_dialog)
 	var form := VBoxContainer.new()
 	form.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -547,6 +549,7 @@ func _build_cliff_water_editor() -> void:
 	cliff_dialog.title = "Cliffs & Water"
 	cliff_dialog.size = Vector2i(500, 500)
 	cliff_dialog.close_requested.connect(cliff_dialog.hide)
+	cliff_dialog.visible = false
 	add_child(cliff_dialog)
 	var form := VBoxContainer.new()
 	form.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -644,7 +647,7 @@ func _build_pathing_editor()->void:
 	for radius in TerrainPathingScript.CLEARANCE_RADII_M:pathing_clearance.add_item("Clearance %.1f m"%radius);pathing_clearance.set_item_metadata(pathing_clearance.item_count-1,radius)
 	hud.add_child(pathing_clearance)
 	var legend:=Label.new();legend.text="Red authored · orange terrain · blue deep water · hatched = no clearance";hud.add_child(legend)
-	pathing_dialog=Window.new();pathing_dialog.title="Pathing";pathing_dialog.size=Vector2i(500,360);pathing_dialog.close_requested.connect(pathing_dialog.hide);add_child(pathing_dialog)
+	pathing_dialog=Window.new();pathing_dialog.title="Pathing";pathing_dialog.size=Vector2i(500,360);pathing_dialog.close_requested.connect(pathing_dialog.hide);pathing_dialog.visible=false;add_child(pathing_dialog)
 	var form:=VBoxContainer.new();form.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT);form.offset_left=18;form.offset_top=18;form.offset_right=-18;form.offset_bottom=-18;pathing_dialog.add_child(form)
 	var help:=Label.new();help.text="Movement and building placement are separate. Manual paint only adds restrictions; derived slope, cliff, water, and bounds rules remain authoritative.";help.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;form.add_child(help)
 	_add_button(form,"Toggle Walkability Overlay",toggle_pathing_overlay)
@@ -699,7 +702,7 @@ func refresh_pathing_overlay()->void:
 
 
 func _build_environment_editor()->void:
-	environment_dialog=Window.new();environment_dialog.title="World Environment";environment_dialog.size=Vector2i(620,650);environment_dialog.close_requested.connect(environment_dialog.hide);add_child(environment_dialog)
+	environment_dialog=Window.new();environment_dialog.title="World Environment";environment_dialog.size=Vector2i(620,650);environment_dialog.close_requested.connect(environment_dialog.hide);environment_dialog.visible=false;add_child(environment_dialog)
 	var scroll:=ScrollContainer.new();scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT);scroll.offset_left=18;scroll.offset_top=18;scroll.offset_right=-18;scroll.offset_bottom=-18;environment_dialog.add_child(scroll)
 	var form:=VBoxContainer.new();form.size_flags_horizontal=Control.SIZE_EXPAND_FILL;scroll.add_child(form)
 	var help:=Label.new();help.text="Godot 4.7.1 parity preview uses identical authored values. Tone mapping, GPU precision, and display calibration may still differ from the target Windows display.";help.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;form.add_child(help)
@@ -745,6 +748,7 @@ func _build_workflow_editor() -> void:
 	workflow_dialog.title = "Terrain Workflow"
 	workflow_dialog.size = Vector2i(520, 620)
 	workflow_dialog.close_requested.connect(workflow_dialog.hide)
+	workflow_dialog.visible = false
 	add_child(workflow_dialog)
 	var form := VBoxContainer.new()
 	form.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -816,7 +820,7 @@ func _workflow_recenter() -> void:
 
 
 func _build_scenario_editor() -> void:
-	scenario_dialog = Window.new(); scenario_dialog.title = "Scenario Editor — Regions"; scenario_dialog.size = Vector2i(680, 760); scenario_dialog.close_requested.connect(scenario_dialog.hide); add_child(scenario_dialog)
+	scenario_dialog = Window.new(); scenario_dialog.title = "Scenario Editor — Regions"; scenario_dialog.size = Vector2i(680, 760); scenario_dialog.close_requested.connect(scenario_dialog.hide); scenario_dialog.visible=false; add_child(scenario_dialog)
 	var scroll := ScrollContainer.new(); scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT); scroll.offset_left = 18; scroll.offset_top = 18; scroll.offset_right = -18; scroll.offset_bottom = -18; scenario_dialog.add_child(scroll)
 	var form := VBoxContainer.new(); form.size_flags_horizontal = Control.SIZE_EXPAND_FILL; scroll.add_child(form)
 	var help := Label.new(); help.text = "Scenario data is portable and saved with the world. Regions use world metres: point (one position), rectangle (opposite corners), or path (ordered endpoints in this increment). IDs become stable references."; help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; form.add_child(help)
@@ -846,7 +850,7 @@ func _build_scenario_editor() -> void:
 
 
 func _build_sequence_editor() -> void:
-	sequence_dialog = Window.new(); sequence_dialog.title = "Scenario Editor — Sequences"; sequence_dialog.size = Vector2i(760,820); sequence_dialog.close_requested.connect(sequence_dialog.hide); add_child(sequence_dialog)
+	sequence_dialog = Window.new(); sequence_dialog.title = "Scenario Editor — Sequences"; sequence_dialog.size = Vector2i(760,820); sequence_dialog.close_requested.connect(sequence_dialog.hide); sequence_dialog.visible=false; add_child(sequence_dialog)
 	var scroll := ScrollContainer.new(); scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT); scroll.offset_left=18; scroll.offset_top=18; scroll.offset_right=-18; scroll.offset_bottom=-18; sequence_dialog.add_child(scroll)
 	var form := VBoxContainer.new(); form.size_flags_horizontal=Control.SIZE_EXPAND_FILL; scroll.add_child(form)
 	var help := Label.new(); help.text="Create typed event-condition-action sequences. Equal-frame sequences run by stable ID; actions run top to bottom. A duplicated sequence starts disabled for safe review."; help.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART; form.add_child(help)
@@ -881,7 +885,7 @@ func _build_sequence_editor() -> void:
 
 
 func _build_guidance_editor() -> void:
-	guidance_dialog=Window.new();guidance_dialog.title="Scenario Editor — Objectives & Guidance";guidance_dialog.size=Vector2i(760,840);guidance_dialog.close_requested.connect(guidance_dialog.hide);add_child(guidance_dialog)
+	guidance_dialog=Window.new();guidance_dialog.title="Scenario Editor — Objectives & Guidance";guidance_dialog.size=Vector2i(760,840);guidance_dialog.close_requested.connect(guidance_dialog.hide);guidance_dialog.visible=false;add_child(guidance_dialog)
 	var scroll:=ScrollContainer.new();scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT);scroll.offset_left=18;scroll.offset_top=18;scroll.offset_right=-18;scroll.offset_bottom=-18;guidance_dialog.add_child(scroll)
 	var form:=VBoxContainer.new();form.size_flags_horizontal=Control.SIZE_EXPAND_FILL;scroll.add_child(form)
 	var help:=Label.new();help.text="Build the mission path as ordered objective steps. A step may point to a checkpoint region. Reusable tutorial prompts can mark the world or viewport and are shown by typed sequence actions.";help.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;form.add_child(help)
@@ -902,7 +906,7 @@ func _build_guidance_editor() -> void:
 
 
 func _build_encounter_editor()->void:
-	encounter_dialog=Window.new();encounter_dialog.title="Scenario Editor — Groups & Encounters";encounter_dialog.size=Vector2i(760,840);encounter_dialog.close_requested.connect(encounter_dialog.hide);add_child(encounter_dialog)
+	encounter_dialog=Window.new();encounter_dialog.title="Scenario Editor — Groups & Encounters";encounter_dialog.size=Vector2i(760,840);encounter_dialog.close_requested.connect(encounter_dialog.hide);encounter_dialog.visible=false;add_child(encounter_dialog)
 	var scroll:=ScrollContainer.new();scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT);scroll.offset_left=18;scroll.offset_top=18;scroll.offset_right=-18;scroll.offset_bottom=-18;encounter_dialog.add_child(scroll)
 	var form:=VBoxContainer.new();form.size_flags_horizontal=Control.SIZE_EXPAND_FILL;scroll.add_child(form)
 	var help:=Label.new();help.text="Groups reference placed unit Instance IDs. Recruit allies with Set Ownership in Sequences. Encounters stay dormant until a region-entry or prior-completion sequence applies Set Encounter.";help.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;form.add_child(help)
@@ -917,7 +921,7 @@ func _build_encounter_editor()->void:
 
 
 func _build_cinematic_editor()->void:
-	cinematic_dialog=Window.new();cinematic_dialog.title="Scenario Editor — Cinematics";cinematic_dialog.size=Vector2i(760,840);cinematic_dialog.close_requested.connect(cinematic_dialog.hide);add_child(cinematic_dialog)
+	cinematic_dialog=Window.new();cinematic_dialog.title="Scenario Editor — Cinematics";cinematic_dialog.size=Vector2i(760,840);cinematic_dialog.close_requested.connect(cinematic_dialog.hide);cinematic_dialog.visible=false;add_child(cinematic_dialog)
 	var scroll:=ScrollContainer.new();scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT);scroll.offset_left=18;scroll.offset_top=18;scroll.offset_right=-18;scroll.offset_bottom=-18;cinematic_dialog.add_child(scroll)
 	var form:=VBoxContainer.new();form.size_flags_horizontal=Control.SIZE_EXPAND_FILL;scroll.add_child(form)
 	var help:=Label.new();help.text="Dialogue text is always the subtitle. Optional audio never replaces it. Select any timeline row to scrub the deterministic preview; Play starts at row 1 and Skip jumps to the end when allowed.";help.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;form.add_child(help)
@@ -1468,8 +1472,8 @@ func _delete_scenario_region() -> void:
 func apply_environment_preview()->void:
 	if DisplayServer.get_name()=="headless" or package.terrain==null:return
 	var world_environment:WorldEnvironment=world_root.get_node("EnvironmentPreview");var sun:DirectionalLight3D=world_root.get_node("SunPreview")
-	if not environment_preview_enabled:world_environment.visible=false;sun.visible=false;return
-	world_environment.visible=true;sun.visible=true
+	if not environment_preview_enabled:world_environment.environment=null;sun.visible=false;return
+	world_environment.environment=world_environment.get_meta("preview_environment");sun.visible=true
 	var probe:Dictionary=TerrainEnvironmentScript.new(package.terrain).parity_probe();var env:Environment=world_environment.environment
 	env.ambient_light_source=Environment.AMBIENT_SOURCE_COLOR;env.ambient_light_color=probe.ambient_color;env.ambient_light_energy=probe.ambient_energy
 	env.fog_enabled=probe.fog_enabled;env.fog_light_color=probe.fog_color;env.fog_density=probe.fog_density;env.fog_depth_begin=probe.fog_start_m;env.fog_depth_end=probe.fog_end_m
@@ -2003,6 +2007,7 @@ func _build_object_editor() -> void:
 	object_dialog.title = "Object Editor"
 	object_dialog.size = Vector2i(900, 600)
 	object_dialog.close_requested.connect(object_dialog.hide)
+	object_dialog.visible = false
 	add_child(object_dialog)
 	var root := HBoxContainer.new()
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -2075,6 +2080,7 @@ func _build_terrain_editor() -> void:
 	terrain_dialog.title = "Terrain Document"
 	terrain_dialog.size = Vector2i(560, 620)
 	terrain_dialog.close_requested.connect(terrain_dialog.hide)
+	terrain_dialog.visible = false
 	add_child(terrain_dialog)
 	var form := VBoxContainer.new()
 	form.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
