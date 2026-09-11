@@ -25,3 +25,4 @@ fi
 "$godot_bin" --headless --path "$project_root" --script res://tests/test_scenario_contract.gd
 "$godot_bin" --headless --path "$project_root" --script res://tests/test_scenario_regions.gd
 "$godot_bin" --headless --path "$project_root" --script res://tests/test_scenario_sequences.gd
+"$godot_bin" --headless --path "$project_root" --script res://tests/test_scenario_objectives.gd

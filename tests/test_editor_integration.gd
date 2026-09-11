@@ -78,12 +78,27 @@ func run() -> void:
 	editor.scenario_region_fields.z1.text = "2"
 	editor._add_scenario_region()
 	_check(editor.package.scenario.find_region("tutorial_start").shape == "point" and editor.world_root.get_node_or_null("ScenarioRegions/tutorial_start") != null, "Creator-authored region is visible in the viewport")
+	editor.show_guidance_editor()
+	editor.objective_fields.objective_id.text = "learn_movement"
+	editor.objective_fields.title.text = "Follow the trail"
+	editor._add_objective()
+	editor._reselect_objective("learn_movement")
+	editor.objective_fields.step_id.text = "reach_start"
+	editor.objective_fields.step_title.text = "Reach the marker"
+	editor.objective_fields.checkpoint_region_id.text = "tutorial_start"
+	editor._add_objective_step()
+	editor.tutorial_fields.tutorial_id.text = "move_prompt"
+	editor.tutorial_fields.text.text = "Right-click the marked ground."
+	editor.tutorial_fields.region_id.text = "tutorial_start"
+	editor._add_tutorial()
+	editor._preview_guidance()
+	_check(editor.package.scenario.data.objectives[0].steps[0].checkpoint_region_id == "tutorial_start" and "never color alone" in editor.guidance_preview.text, "Creator authors and previews objective checkpoints and non-color tutorial guidance without JSON")
 	editor.show_sequence_editor()
 	editor.sequence_fields.sequence_id.text = "mission_start"
 	editor._create_sequence()
 	_check(editor.package.scenario.data.sequences.size() == 1 and editor.sequence_event_type.item_count == 5, "Creator can add a typed scenario-start sequence")
 	editor._reload_sequence_by_id("mission_start")
-	_check(editor.sequence_action_type.item_count == 8 and editor.sequence_actions.item_count == 1, "Sequence workspace exposes the constrained action vocabulary and ordered steps")
+	_check(editor.sequence_action_type.item_count == 10 and editor.sequence_actions.item_count == 1, "Sequence workspace exposes the constrained action vocabulary and ordered steps")
 	var guard: Dictionary = editor.package.find_definition("unit_crimsdale_guard")
 	_check(guard.owner == "player" and guard.max_health == 120.0, "Crimsdale guard exposes authored gameplay fields")
 	editor.load_definition_form(2 if editor.definition_list.get_item_metadata(2) == "unit_crimsdale_guard" else 3)
