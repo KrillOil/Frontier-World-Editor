@@ -84,6 +84,15 @@ var scenario_region_list: ItemList
 var scenario_region_shape: OptionButton
 var scenario_region_fields: Dictionary = {}
 var scenario_remove_confirmation: ConfirmationDialog
+var sequence_dialog: Window
+var sequence_list: ItemList
+var sequence_fields: Dictionary = {}
+var sequence_event_type: OptionButton
+var sequence_condition_type: OptionButton
+var sequence_action_type: OptionButton
+var sequence_conditions: ItemList
+var sequence_actions: ItemList
+var sequence_signature: Label
 var pending_after_save: Callable
 var definition_list: ItemList
 var definition_id_field: LineEdit
@@ -115,6 +124,7 @@ func _ready() -> void:
 	_build_environment_editor()
 	_build_workflow_editor()
 	_build_scenario_editor()
+	_build_sequence_editor()
 	_build_object_editor()
 	_build_terrain_editor()
 	_build_package_dialogs()
@@ -785,6 +795,7 @@ func _build_scenario_editor() -> void:
 	scenario_fields.scenario_id.editable = false
 	_add_button(form, "Create Scenario", _create_scenario)
 	_add_button(form, "Apply Scenario Details", _apply_scenario_metadata)
+	_add_button(form, "Open Sequences…", show_sequence_editor)
 	_add_button(form, "Remove Scenario…", func(): scenario_remove_confirmation.popup_centered())
 	var divider := HSeparator.new(); form.add_child(divider)
 	scenario_region_list = ItemList.new(); scenario_region_list.custom_minimum_size.y = 150; scenario_region_list.item_selected.connect(_load_scenario_region); form.add_child(scenario_region_list)
@@ -798,6 +809,193 @@ func _build_scenario_editor() -> void:
 	_add_button(form, "Reverse Selected Path", _reverse_scenario_path)
 	_add_button(form, "Delete Selected Region", _delete_scenario_region)
 	scenario_remove_confirmation = ConfirmationDialog.new(); scenario_remove_confirmation.title = "Remove Scenario"; scenario_remove_confirmation.dialog_text = "Remove scenario.json from this world on the next save? Terrain, definitions, and placed objects remain."; scenario_remove_confirmation.confirmed.connect(_remove_scenario); add_child(scenario_remove_confirmation)
+
+
+func _build_sequence_editor() -> void:
+	sequence_dialog = Window.new(); sequence_dialog.title = "Scenario Editor — Sequences"; sequence_dialog.size = Vector2i(760,820); sequence_dialog.close_requested.connect(sequence_dialog.hide); add_child(sequence_dialog)
+	var scroll := ScrollContainer.new(); scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT); scroll.offset_left=18; scroll.offset_top=18; scroll.offset_right=-18; scroll.offset_bottom=-18; sequence_dialog.add_child(scroll)
+	var form := VBoxContainer.new(); form.size_flags_horizontal=Control.SIZE_EXPAND_FILL; scroll.add_child(form)
+	var help := Label.new(); help.text="Create typed event-condition-action sequences. Equal-frame sequences run by stable ID; actions run top to bottom. A duplicated sequence starts disabled for safe review."; help.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART; form.add_child(help)
+	sequence_list=ItemList.new(); sequence_list.custom_minimum_size.y=130; sequence_list.item_selected.connect(_load_sequence); form.add_child(sequence_list)
+	for field in ["sequence_id","a","b","c","text","number"]: sequence_fields[field]=_add_field(form, {"sequence_id":"Sequence ID","a":"Reference A","b":"Reference / value B","c":"Reference / value C","text":"Message text","number":"Duration / number"}[field])
+	sequence_fields.number.text="2"
+	var flags:=HBoxContainer.new(); form.add_child(flags)
+	var enabled:=CheckBox.new(); enabled.text="Enabled"; enabled.button_pressed=true; flags.add_child(enabled); sequence_fields.enabled=enabled
+	var one_shot:=CheckBox.new(); one_shot.text="One shot"; one_shot.button_pressed=true; flags.add_child(one_shot); sequence_fields.one_shot=one_shot
+	sequence_event_type=OptionButton.new()
+	for type in ScenarioDocumentScript.EVENTS: sequence_event_type.add_item(type.replace("_"," ").capitalize()); sequence_event_type.set_item_metadata(sequence_event_type.item_count-1,type)
+	sequence_event_type.item_selected.connect(func(_index): _update_sequence_signature("event")); form.add_child(sequence_event_type)
+	_add_button(form,"Create Sequence",_create_sequence); _add_button(form,"Apply Event / Flags",_apply_sequence_event); _add_button(form,"Duplicate Selected",_duplicate_sequence); _add_button(form,"Delete Selected",_delete_sequence)
+	sequence_signature=Label.new(); sequence_signature.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART; form.add_child(sequence_signature)
+	var split:=HBoxContainer.new(); form.add_child(split)
+	var conditions_box:=VBoxContainer.new(); conditions_box.size_flags_horizontal=Control.SIZE_EXPAND_FILL; split.add_child(conditions_box)
+	var conditions_label:=Label.new(); conditions_label.text="Conditions"; conditions_box.add_child(conditions_label)
+	sequence_condition_type=OptionButton.new()
+	for type in ScenarioDocumentScript.CONDITIONS: sequence_condition_type.add_item(type.replace("_"," ").capitalize()); sequence_condition_type.set_item_metadata(sequence_condition_type.item_count-1,type)
+	sequence_condition_type.item_selected.connect(func(_index): _update_sequence_signature("condition")); conditions_box.add_child(sequence_condition_type)
+	sequence_conditions=ItemList.new(); sequence_conditions.custom_minimum_size=Vector2(330,120); conditions_box.add_child(sequence_conditions)
+	_add_button(conditions_box,"Add Condition",_add_sequence_condition); _add_button(conditions_box,"Remove Condition",_remove_sequence_condition)
+	var actions_box:=VBoxContainer.new(); actions_box.size_flags_horizontal=Control.SIZE_EXPAND_FILL; split.add_child(actions_box)
+	var actions_label:=Label.new(); actions_label.text="Actions"; actions_box.add_child(actions_label)
+	sequence_action_type=OptionButton.new()
+	for type in ScenarioDocumentScript.ACTIONS: sequence_action_type.add_item(type.replace("_"," ").capitalize()); sequence_action_type.set_item_metadata(sequence_action_type.item_count-1,type)
+	sequence_action_type.item_selected.connect(func(_index): _update_sequence_signature("action")); actions_box.add_child(sequence_action_type)
+	sequence_actions=ItemList.new(); sequence_actions.custom_minimum_size=Vector2(330,120); actions_box.add_child(sequence_actions)
+	_add_button(actions_box,"Add Action",_add_sequence_action); _add_button(actions_box,"Move Action Up",func():_move_sequence_action(-1)); _add_button(actions_box,"Move Action Down",func():_move_sequence_action(1)); _add_button(actions_box,"Remove Action",_remove_sequence_action)
+	_add_button(form,"Validate Flow",_validate_sequence_flow)
+	_update_sequence_signature("event")
+
+
+func show_sequence_editor() -> void:
+	if package.scenario==null: status("Create a scenario before authoring sequences"); return
+	_refresh_sequence_list(); sequence_dialog.popup_centered(); status("Sequence workspace — typed events, conditions, and actions")
+
+
+func _refresh_sequence_list() -> void:
+	sequence_list.clear()
+	if package.scenario==null:return
+	var sequences:Array=package.scenario.data.sequences.duplicate(); sequences.sort_custom(func(a,b):return a.sequence_id<b.sequence_id)
+	for sequence in sequences:
+		sequence_list.add_item("%s  [%s%s]"%[sequence.sequence_id,"on" if sequence.enabled else "off",", once" if sequence.one_shot else ""]);sequence_list.set_item_metadata(sequence_list.item_count-1,sequence.sequence_id)
+
+
+func _selected_sequence_id()->String:
+	var selected:=sequence_list.get_selected_items();return "" if selected.is_empty() else sequence_list.get_item_metadata(selected[0])
+
+
+func _load_sequence(index:int)->void:
+	var id:String=sequence_list.get_item_metadata(index);var sequence:Dictionary=package.scenario._find(package.scenario.data.sequences,"sequence_id",id)
+	sequence_fields.sequence_id.text=id;sequence_fields.sequence_id.editable=false;sequence_fields.enabled.button_pressed=sequence.enabled;sequence_fields.one_shot.button_pressed=sequence.one_shot
+	for item in sequence_event_type.item_count:
+		if sequence_event_type.get_item_metadata(item)==sequence.event.type:sequence_event_type.select(item)
+	_load_typed_references(sequence.event);sequence_conditions.clear();sequence_actions.clear()
+	for condition in sequence.conditions:sequence_conditions.add_item(_typed_summary(condition))
+	for action in sequence.actions:sequence_actions.add_item(_typed_summary(action))
+	_update_sequence_signature("event");status("Selected sequence '%s'"%id)
+
+
+func _create_sequence()->void:
+	if package.scenario==null:return
+	var id:String=sequence_fields.sequence_id.text;var event:Dictionary=_event_from_form()
+	if package.scenario.add_sequence(id,event,package.world,sequence_fields.enabled.button_pressed,sequence_fields.one_shot.button_pressed):_refresh_sequence_list();refresh_all();status("Created sequence '%s'"%id)
+	else:package.errors=package.scenario.errors;show_errors()
+
+
+func _apply_sequence_event()->void:
+	var id:String=_selected_sequence_id();if id.is_empty():status("Select a sequence");return
+	if package.scenario.update_sequence(id,{"enabled":sequence_fields.enabled.button_pressed,"one_shot":sequence_fields.one_shot.button_pressed,"event":_event_from_form()},package.world):_refresh_sequence_list();refresh_all();status("Updated sequence event and flags")
+	else:package.errors=package.scenario.errors;show_errors()
+
+
+func _duplicate_sequence()->void:
+	var id:String=_selected_sequence_id();if id.is_empty():status("Select a sequence");return
+	var new_id:String=id+"_copy";var suffix:=2
+	while not package.scenario._find(package.scenario.data.sequences,"sequence_id",new_id).is_empty():new_id="%s_copy_%d"%[id,suffix];suffix+=1
+	if package.scenario.duplicate_sequence(id,new_id,package.world):_refresh_sequence_list();refresh_all();status("Duplicated as disabled sequence '%s'"%new_id)
+	else:package.errors=package.scenario.errors;show_errors()
+
+
+func _delete_sequence()->void:
+	var id:String=_selected_sequence_id();if id.is_empty():status("Select a sequence");return
+	if package.scenario.delete_sequence(id,package.world):_refresh_sequence_list();refresh_all();status("Deleted sequence '%s'"%id)
+	else:package.errors=package.scenario.errors;show_errors()
+
+
+func _add_sequence_condition()->void:
+	var id:String=_selected_sequence_id();if id.is_empty():status("Select a sequence");return
+	if package.scenario.add_sequence_step(id,"conditions",_condition_from_form(),package.world):_reload_sequence_by_id(id);refresh_all();status("Condition added")
+	else:package.errors=package.scenario.errors;show_errors()
+
+
+func _add_sequence_action()->void:
+	var id:String=_selected_sequence_id();if id.is_empty():status("Select a sequence");return
+	if package.scenario.add_sequence_step(id,"actions",_action_from_form(),package.world):_reload_sequence_by_id(id);refresh_all();status("Action appended")
+	else:package.errors=package.scenario.errors;show_errors()
+
+
+func _remove_sequence_condition()->void:
+	var id:String=_selected_sequence_id();var selected:=sequence_conditions.get_selected_items();if id.is_empty() or selected.is_empty():status("Select a condition");return
+	if package.scenario.delete_sequence_step(id,"conditions",selected[0],package.world):_reload_sequence_by_id(id);refresh_all()
+	else:package.errors=package.scenario.errors;show_errors()
+
+
+func _remove_sequence_action()->void:
+	var id:String=_selected_sequence_id();var selected:=sequence_actions.get_selected_items();if id.is_empty() or selected.is_empty():status("Select an action");return
+	if package.scenario.delete_sequence_step(id,"actions",selected[0],package.world):_reload_sequence_by_id(id);refresh_all()
+	else:package.errors=package.scenario.errors;show_errors()
+
+
+func _move_sequence_action(direction:int)->void:
+	var id:String=_selected_sequence_id();var selected:=sequence_actions.get_selected_items();if id.is_empty() or selected.is_empty():status("Select an action");return
+	if package.scenario.move_sequence_step(id,"actions",selected[0],direction,package.world):_reload_sequence_by_id(id);sequence_actions.select(clampi(selected[0]+direction,0,sequence_actions.item_count-1));refresh_all()
+	else:status("Action is already at that edge")
+
+
+func _reload_sequence_by_id(id:String)->void:
+	_refresh_sequence_list()
+	for index in sequence_list.item_count:
+		if sequence_list.get_item_metadata(index)==id:sequence_list.select(index);_load_sequence(index);return
+
+
+func _event_from_form()->Dictionary:
+	var type:String=sequence_event_type.get_item_metadata(sequence_event_type.selected)
+	match type:
+		"scenario_start":return {"type":type}
+		"unit_enters_region":return {"type":type,"group_id":sequence_fields.a.text,"region_id":sequence_fields.b.text}
+		"unit_died":return {"type":type,"group_id":sequence_fields.a.text}
+		"objective_changed":return {"type":type,"objective_id":sequence_fields.a.text,"state":sequence_fields.b.text}
+		_:return {"type":type,"sequence_id":sequence_fields.a.text}
+
+
+func _condition_from_form()->Dictionary:
+	var type:String=sequence_condition_type.get_item_metadata(sequence_condition_type.selected)
+	match type:
+		"objective_is":return {"type":type,"objective_id":sequence_fields.a.text,"state":sequence_fields.b.text}
+		"group_alive":return {"type":type,"group_id":sequence_fields.a.text,"value":sequence_fields.b.text.to_lower()!="false"}
+		"group_owned_by":return {"type":type,"group_id":sequence_fields.a.text,"owner_id":sequence_fields.b.text}
+		_:return {"type":type,"sequence_id":sequence_fields.a.text,"value":sequence_fields.b.text.to_lower()!="false"}
+
+
+func _action_from_form()->Dictionary:
+	var type:String=sequence_action_type.get_item_metadata(sequence_action_type.selected)
+	match type:
+		"show_message":return {"type":type,"message_id":sequence_fields.a.text,"text":sequence_fields.text.text,"duration_s":maxf(0.1,float(sequence_fields.number.text))}
+		"set_objective":return {"type":type,"objective_id":sequence_fields.a.text,"state":sequence_fields.b.text}
+		"set_ownership":return {"type":type,"group_id":sequence_fields.a.text,"owner_id":sequence_fields.b.text}
+		"order_group":return {"type":type,"group_id":sequence_fields.a.text,"order":sequence_fields.b.text,"target_region_id":sequence_fields.c.text}
+		"set_encounter":return {"type":type,"group_id":sequence_fields.a.text,"state":sequence_fields.b.text,"behavior":sequence_fields.c.text,"leash_region_id":sequence_fields.text.text}
+		"grant_reward":return {"type":type,"group_id":sequence_fields.a.text,"reward_id":sequence_fields.b.text}
+		"play_cinematic":return {"type":type,"cinematic_id":sequence_fields.a.text}
+		_:return {"type":type,"result":sequence_fields.a.text}
+
+
+func _load_typed_references(value:Dictionary)->void:
+	var ordered:=[]
+	for key in ["group_id","objective_id","sequence_id","message_id","cinematic_id","result"]:
+		if value.has(key):ordered.append(str(value[key]))
+	for key in ["region_id","state","owner_id","reward_id","order"]:
+		if value.has(key):ordered.append(str(value[key]))
+	for index in 3:sequence_fields[["a","b","c"][index]].text=ordered[index] if index<ordered.size() else ""
+	if value.has("text"):sequence_fields.text.text=value.text
+	if value.has("duration_s"):sequence_fields.number.text=str(value.duration_s)
+
+
+func _typed_summary(value:Dictionary)->String:
+	var details:Array[String]=[]
+	for key in value:
+		if key!="type":details.append("%s=%s"%[key,value[key]])
+	return "%s  %s"%[str(value.type).replace("_"," "),", ".join(details)]
+
+
+func _update_sequence_signature(kind:String)->void:
+	if sequence_signature==null:return
+	var signatures:={"event":{"scenario_start":"no references","unit_enters_region":"A=group, B=region","unit_died":"A=group","objective_changed":"A=objective, B=state","sequence_completed":"A=sequence"},"condition":{"objective_is":"A=objective, B=state","group_alive":"A=group, B=true/false","group_owned_by":"A=group, B=owner","sequence_has_run":"A=sequence, B=true/false"},"action":{"show_message":"A=message ID, Text, Number=duration","set_objective":"A=objective, B=state","set_ownership":"A=group, B=owner","order_group":"A=group, B=move/attack_move, C=region","set_encounter":"A=group, B=inactive/active, C=behavior, Text=leash region","grant_reward":"A=group, B=reward","play_cinematic":"A=cinematic","complete_scenario":"A=victory/failure"}}
+	var control:OptionButton={"event":sequence_event_type,"condition":sequence_condition_type,"action":sequence_action_type}[kind];var type:String=control.get_item_metadata(control.selected);sequence_signature.text="%s: %s"%[type,signatures[kind][type]]
+
+
+func _validate_sequence_flow()->void:
+	var failures:Array[String]=package.scenario.validate(package.scenario.data,package.world);var notices:Array[String]=package.scenario.flow_diagnostics()
+	status("Sequence flow valid" if failures.is_empty() and notices.is_empty() else " | ".join(failures+notices))
 
 
 func show_scenario_editor() -> void:

@@ -78,6 +78,12 @@ func run() -> void:
 	editor.scenario_region_fields.z1.text = "2"
 	editor._add_scenario_region()
 	_check(editor.package.scenario.find_region("tutorial_start").shape == "point" and editor.world_root.get_node_or_null("ScenarioRegions/tutorial_start") != null, "Creator-authored region is visible in the viewport")
+	editor.show_sequence_editor()
+	editor.sequence_fields.sequence_id.text = "mission_start"
+	editor._create_sequence()
+	_check(editor.package.scenario.data.sequences.size() == 1 and editor.sequence_event_type.item_count == 5, "Creator can add a typed scenario-start sequence")
+	editor._reload_sequence_by_id("mission_start")
+	_check(editor.sequence_action_type.item_count == 8 and editor.sequence_actions.item_count == 1, "Sequence workspace exposes the constrained action vocabulary and ordered steps")
 	var guard: Dictionary = editor.package.find_definition("unit_crimsdale_guard")
 	_check(guard.owner == "player" and guard.max_health == 120.0, "Crimsdale guard exposes authored gameplay fields")
 	editor.load_definition_form(2 if editor.definition_list.get_item_metadata(2) == "unit_crimsdale_guard" else 3)

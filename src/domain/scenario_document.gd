@@ -68,6 +68,68 @@ func delete_region(region_id: String, world: Dictionary) -> bool:
 	return _commit(candidate, world)
 
 
+func add_sequence(sequence_id: String, event: Dictionary, world: Dictionary, enabled := true, one_shot := true) -> bool:
+	var candidate: Dictionary = data.duplicate(true)
+	candidate.sequences.append({"sequence_id":sequence_id,"enabled":enabled,"one_shot":one_shot,"event":event.duplicate(true),"conditions":[],"actions":[{"type":"show_message","message_id":sequence_id + "_message","text":"New sequence","duration_s":2.0}]})
+	return _commit(candidate, world)
+
+
+func update_sequence(sequence_id: String, changes: Dictionary, world: Dictionary) -> bool:
+	var candidate: Dictionary = data.duplicate(true); var sequence := _find(candidate.sequences, "sequence_id", sequence_id)
+	if sequence.is_empty(): return _fail(["Unknown scenario sequence '%s'" % sequence_id])
+	for key in ["enabled","one_shot","event","conditions","actions"]:
+		if changes.has(key): sequence[key] = changes[key].duplicate(true) if changes[key] is Array or changes[key] is Dictionary else changes[key]
+	return _commit(candidate, world)
+
+
+func duplicate_sequence(sequence_id: String, new_id: String, world: Dictionary) -> bool:
+	var source := _find(data.get("sequences", []), "sequence_id", sequence_id)
+	if source.is_empty(): return _fail(["Unknown scenario sequence '%s'" % sequence_id])
+	var candidate: Dictionary = data.duplicate(true); var copy: Dictionary = source.duplicate(true); copy.sequence_id = new_id; copy.enabled = false; candidate.sequences.append(copy)
+	return _commit(candidate, world)
+
+
+func delete_sequence(sequence_id: String, world: Dictionary) -> bool:
+	var references: Array[String] = []
+	for sequence in data.get("sequences", []):
+		if sequence.sequence_id != sequence_id and sequence.event.get("type") == "sequence_completed" and sequence.event.get("sequence_id") == sequence_id: references.append(sequence.sequence_id)
+		for condition in sequence.conditions:
+			if condition.get("type") == "sequence_has_run" and condition.get("sequence_id") == sequence_id: references.append(sequence.sequence_id)
+	if not references.is_empty(): return _fail(["Cannot delete sequence '%s'; referenced by %s" % [sequence_id, ", ".join(references)]])
+	var candidate: Dictionary = data.duplicate(true); candidate.sequences = candidate.sequences.filter(func(sequence): return sequence.sequence_id != sequence_id)
+	if candidate.sequences.size() == data.sequences.size(): return _fail(["Unknown scenario sequence '%s'" % sequence_id])
+	return _commit(candidate, world)
+
+
+func add_sequence_step(sequence_id: String, collection: String, step: Dictionary, world: Dictionary) -> bool:
+	if collection not in ["conditions","actions"]: return _fail(["Sequence steps must be conditions or actions"])
+	var candidate: Dictionary = data.duplicate(true); var sequence := _find(candidate.sequences, "sequence_id", sequence_id)
+	if sequence.is_empty(): return _fail(["Unknown scenario sequence '%s'" % sequence_id])
+	sequence[collection].append(step.duplicate(true)); return _commit(candidate, world)
+
+
+func move_sequence_step(sequence_id: String, collection: String, index: int, direction: int, world: Dictionary) -> bool:
+	var candidate: Dictionary = data.duplicate(true); var sequence := _find(candidate.sequences, "sequence_id", sequence_id)
+	if sequence.is_empty() or collection not in ["conditions","actions"]: return _fail(["Unknown sequence step collection"])
+	var destination := index + direction
+	if index < 0 or destination < 0 or index >= sequence[collection].size() or destination >= sequence[collection].size(): return _fail(["Sequence step cannot move farther"])
+	var step = sequence[collection].pop_at(index); sequence[collection].insert(destination, step); return _commit(candidate, world)
+
+
+func delete_sequence_step(sequence_id: String, collection: String, index: int, world: Dictionary) -> bool:
+	var candidate: Dictionary = data.duplicate(true); var sequence := _find(candidate.sequences, "sequence_id", sequence_id)
+	if sequence.is_empty() or collection not in ["conditions","actions"] or index < 0 or index >= sequence[collection].size(): return _fail(["Unknown sequence step"])
+	sequence[collection].remove_at(index); return _commit(candidate, world)
+
+
+func flow_diagnostics() -> Array[String]:
+	var messages: Array[String] = []
+	for sequence in data.get("sequences", []):
+		if not sequence.enabled: messages.append("Sequence '%s' is disabled" % sequence.sequence_id)
+		if sequence.event.get("type") == "sequence_completed" and not _find(data.sequences, "sequence_id", sequence.event.get("sequence_id", "")).enabled: messages.append("Sequence '%s' waits on a disabled sequence" % sequence.sequence_id)
+	return messages
+
+
 func find_region(region_id: String) -> Dictionary: return _find(data.get("regions", []), "region_id", region_id)
 
 
