@@ -101,7 +101,13 @@ func run() -> void:
 	_check(editor.package.scenario.data.unit_groups.size()==2 and editor.package.scenario.data.encounters[0].initial_state=="inactive","Creator groups placed units and authors a dormant encounter without JSON")
 	editor.show_cinematic_editor();editor.cinematic_fields.cinematic_id.text="opening";editor._add_cinematic();editor._reselect_cinematic("opening");editor.cinematic_fields.a.text="crimsdale_guard_001";editor.cinematic_fields.text.text="Follow me beyond the ridge.";editor.cinematic_fields.number.text="3";_check(editor._cinematic_step_from_form().get("type")=="dialogue","Cinematic form defaults to dialogue");editor._add_cinematic_step();editor._play_cinematic_preview();editor._skip_cinematic_preview()
 	_check(editor.package.scenario.data.cinematics.size()==1,"Creator adds a cinematic: "+" | ".join(editor.package.scenario.errors))
-	if editor.package.scenario.data.cinematics.size()==1:_check(editor.package.scenario.data.cinematics[0].steps.size()==1 and "Follow me" in editor.package.scenario.data.cinematics[0].steps[0].text and "SKIPPED" in editor.cinematic_preview.text,"Creator authors, subtitles, scrubs, plays, and skips a cinematic without optional audio: "+" | ".join(editor.package.scenario.errors))
+	if editor.package.scenario.data.cinematics.size()==1:
+		_check(editor.package.scenario.data.cinematics[0].steps.size()==1 and "Follow me" in editor.package.scenario.data.cinematics[0].steps[0].text and "SKIPPED" in editor.cinematic_preview.text,"Creator authors, subtitles, scrubs, plays, and skips a cinematic without optional audio: "+" | ".join(editor.package.scenario.errors))
+		_check(editor.cinematic_fields.skippable is CheckBox and editor.cinematic_field_labels.a.text=="Speaker instance ID" and editor.cinematic_field_rows.c.visible==false and "Dialogue —" in editor.cinematic_step_list.get_item_text(0) and "{" not in editor.cinematic_step_list.get_item_text(0),"Cinematic workspace uses explicit flags, type-specific labels, and readable timeline rows")
+		for type_index in editor.cinematic_step_type.item_count:
+			if editor.cinematic_step_type.get_item_metadata(type_index)=="camera":editor.cinematic_step_type.select(type_index);editor._refresh_cinematic_step_fields();break
+		_check(editor.cinematic_field_labels.a.text=="Camera region ID" and editor.cinematic_field_rows.number_2.visible and not editor.cinematic_field_rows.b.visible,"Camera beats expose only region and timing controls")
+		editor.cinematic_step_list.select(0);editor._scrub_cinematic(0);editor.cinematic_fields.text.text="The safe road is beyond the ridge.";editor._update_cinematic_step();_check(editor.package.scenario.data.cinematics[0].steps[0].text=="The safe road is beyond the ridge.","Selecting and updating an existing cinematic beat preserves its timeline position")
 	editor.show_sequence_editor()
 	editor.sequence_fields.sequence_id.text = "mission_start"
 	editor._create_sequence()
@@ -116,6 +122,8 @@ func run() -> void:
 	editor._preview_encounters()
 	_check(editor.sequence_action_type.item_count == 10 and editor.sequence_actions.item_count == 3, "Sequence workspace exposes the constrained action vocabulary and ordered steps")
 	_check("mission_start via scenario_start" in editor.encounter_preview.text,"Encounter preview identifies its activation sequence, membership, and labeled bounds")
+	editor._validate_sequence_flow();_check(editor.validation_dialog.visible and "passed" in editor.validation_summary.text.to_lower() and "PASS" in editor.validation_list.get_item_text(0),"Valid scenario opens a clear validation pass result")
+	var original_speaker:String=editor.package.scenario.data.cinematics[0].steps[0].speaker_instance_id;editor.package.scenario.data.cinematics[0].steps[0].speaker_instance_id="missing_speaker";editor._validate_sequence_flow();_check("ERROR — Cinematics" in editor.validation_list.get_item_text(0),"Invalid cinematic reference is routed to its repair workspace");editor.validation_list.select(0);editor._open_selected_validation_finding();_check(editor.cinematic_dialog.visible and "Opened Cinematics" in editor.status_label.text,"A validation finding opens the relevant Creator workspace");editor.package.scenario.data.cinematics[0].steps[0].speaker_instance_id=original_speaker
 	var guard: Dictionary = editor.package.find_definition("unit_crimsdale_guard")
 	_check(guard.owner == "player" and guard.max_health == 120.0, "Crimsdale guard exposes authored gameplay fields")
 	for definition_index in editor.definition_list.item_count:

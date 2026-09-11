@@ -286,6 +286,12 @@ func add_cinematic_step(cinematic_id:String,step:Dictionary,world:Dictionary)->b
 	cinematic.steps.append(step.duplicate(true));return _commit(candidate,world)
 
 
+func update_cinematic_step(cinematic_id:String,index:int,step:Dictionary,world:Dictionary)->bool:
+	var candidate:Dictionary=data.duplicate(true);var cinematic:=_find(candidate.cinematics,"cinematic_id",cinematic_id)
+	if cinematic.is_empty() or index<0 or index>=cinematic.steps.size():return _fail(["Unknown cinematic timeline step"])
+	cinematic.steps[index]=step.duplicate(true);return _commit(candidate,world)
+
+
 func move_cinematic_step(cinematic_id:String,index:int,direction:int,world:Dictionary)->bool:
 	var candidate:Dictionary=data.duplicate(true);var cinematic:=_find(candidate.cinematics,"cinematic_id",cinematic_id);var destination:=index+direction
 	if cinematic.is_empty() or index<0 or destination<0 or index>=cinematic.steps.size() or destination>=cinematic.steps.size():return _fail(["Cinematic step cannot move farther"])
