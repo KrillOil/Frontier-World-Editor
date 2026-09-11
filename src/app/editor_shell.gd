@@ -969,7 +969,11 @@ func show_cinematic_editor()->void:
 
 func _refresh_cinematics()->void:
 	cinematic_list.clear();cinematic_step_list.clear()
-	for cinematic in package.scenario.data.cinematics:cinematic_list.add_item("%s  [%s]"%[cinematic.cinematic_id,"skippable" if cinematic.skippable else "locked"]);cinematic_list.set_item_metadata(cinematic_list.item_count-1,cinematic.cinematic_id)
+	for index in package.scenario.data.cinematics.size():
+		var cinematic=package.scenario.data.cinematics[index]
+		if not cinematic is Dictionary:
+			cinematic_list.add_item("Invalid cinematic entry %d — restore or remove this entry"%(index+1));cinematic_list.set_item_metadata(cinematic_list.item_count-1,{"invalid_index":index});continue
+		cinematic_list.add_item("%s  [%s]"%[cinematic.get("cinematic_id","unnamed"),"skippable" if cinematic.get("skippable",false) else "locked"]);cinematic_list.set_item_metadata(cinematic_list.item_count-1,cinematic.get("cinematic_id",""))
 
 
 func _selected_cinematic_id()->String:
@@ -1294,9 +1298,17 @@ func show_sequence_editor() -> void:
 func _refresh_sequence_list() -> void:
 	sequence_list.clear()
 	if package.scenario==null:return
-	var sequences:Array=package.scenario.data.sequences.duplicate(); sequences.sort_custom(func(a,b):return a.sequence_id<b.sequence_id)
-	for sequence in sequences:
-		sequence_list.add_item("%s  [%s%s]"%[sequence.sequence_id,"on" if sequence.enabled else "off",", once" if sequence.one_shot else ""]);sequence_list.set_item_metadata(sequence_list.item_count-1,sequence.sequence_id)
+	var sequences:Array=[]
+	for index in package.scenario.data.sequences.size():sequences.append({"index":index,"value":package.scenario.data.sequences[index]})
+	sequences.sort_custom(func(a,b):
+		if a.value is Dictionary and not b.value is Dictionary:return true
+		if not a.value is Dictionary:return false
+		return str(a.value.get("sequence_id",""))<str(b.value.get("sequence_id","")))
+	for entry in sequences:
+		var sequence=entry.value
+		if not sequence is Dictionary:
+			sequence_list.add_item("Invalid sequence entry %d — restore or remove this entry"%(entry.index+1));sequence_list.set_item_metadata(sequence_list.item_count-1,{"invalid_index":entry.index});continue
+		sequence_list.add_item("%s  [%s%s]"%[sequence.get("sequence_id","unnamed"),"on" if sequence.get("enabled",false) else "off",", once" if sequence.get("one_shot",false) else ""]);sequence_list.set_item_metadata(sequence_list.item_count-1,sequence.get("sequence_id",""))
 
 
 func _selected_sequence_id()->String:
@@ -1471,11 +1483,19 @@ func _validation_route(message:String,workspace:String)->Dictionary:
 	var route:={"workspace":workspace}
 	if workspace=="Cinematics":
 		var index:=_validation_collection_index(message,"cinematics")
-		if index>=0 and index<package.scenario.data.cinematics.size():route.cinematic_id=package.scenario.data.cinematics[index].cinematic_id
+		if index>=0:
+			route.entity_index=index
+			if index<package.scenario.data.cinematics.size():
+				var cinematic=package.scenario.data.cinematics[index]
+				if cinematic is Dictionary and cinematic.has("cinematic_id"):route.cinematic_id=cinematic.cinematic_id
 		var step_index:=_validation_collection_index(message,"steps");if step_index>=0:route.step_index=step_index
 	if workspace=="Sequences":
 		var index:=_validation_collection_index(message,"sequences")
-		if index>=0 and index<package.scenario.data.sequences.size():route.sequence_id=package.scenario.data.sequences[index].sequence_id
+		if index>=0:
+			route.entity_index=index
+			if index<package.scenario.data.sequences.size():
+				var sequence=package.scenario.data.sequences[index]
+				if sequence is Dictionary and sequence.has("sequence_id"):route.sequence_id=sequence.sequence_id
 		if not route.has("sequence_id"):
 			var named:=RegEx.new();named.compile("[Ss]equence '([^']+)'");var named_match:=named.search(message)
 			if named_match!=null:route.sequence_id=named_match.get_string(1)
@@ -1492,6 +1512,7 @@ func _validation_human_message(message:String,finding:Dictionary)->String:
 	var location:=""
 	if finding.has("cinematic_id"):location="Cinematic '%s'"%finding.cinematic_id
 	if finding.has("sequence_id"):location="Sequence '%s'"%finding.sequence_id
+	if location.is_empty() and finding.has("entity_index"):location="%s entry %d"%["Cinematic" if finding.workspace=="Cinematics" else "Sequence",int(finding.entity_index)+1]
 	if finding.has("step_index"):location+=" — %s %d"%["timeline step" if finding.workspace=="Cinematics" else str(finding.get("sequence_collection","step")).trim_suffix("s"),int(finding.step_index)+1]
 	var marker:=message.find(" has ");var detail:=message.substr(marker+5) if marker>=0 else message
 	if not location.is_empty() and message.begins_with(location):return message
@@ -1508,16 +1529,24 @@ func _open_selected_validation_finding()->void:
 			if finding.has("cinematic_id"):
 				_reselect_cinematic(finding.cinematic_id);var step_index:=int(finding.get("step_index",-1))
 				if step_index>=0 and step_index<cinematic_step_list.item_count:cinematic_step_list.select(step_index);_scrub_cinematic(step_index)
+			elif finding.has("entity_index"):_select_invalid_validation_entity(cinematic_list,int(finding.entity_index))
 		"Sequences":
 			show_sequence_editor()
 			if finding.has("sequence_id"):
 				_reload_sequence_by_id(finding.sequence_id);var step_index:=int(finding.get("step_index",-1));var collection:=str(finding.get("sequence_collection",""))
 				if step_index>=0 and collection=="conditions" and step_index<sequence_conditions.item_count:sequence_conditions.select(step_index)
 				if step_index>=0 and collection=="actions" and step_index<sequence_actions.item_count:sequence_actions.select(step_index)
+			elif finding.has("entity_index"):_select_invalid_validation_entity(sequence_list,int(finding.entity_index))
 		"Objectives & Guidance":show_guidance_editor()
 		"Groups & Encounters":show_encounter_editor()
 		_:show_scenario_editor()
 	status("Opened %s for: %s"%[finding.workspace,message])
+
+
+func _select_invalid_validation_entity(list:ItemList,entity_index:int)->void:
+	for item_index in list.item_count:
+		var metadata=list.get_item_metadata(item_index)
+		if metadata is Dictionary and metadata.get("invalid_index",-1)==entity_index:list.select(item_index);return
 
 
 func show_scenario_editor() -> void:
