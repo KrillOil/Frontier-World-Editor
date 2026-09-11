@@ -28,7 +28,7 @@ Outcome: a playable original mission with an opening scene, leader guidance, rec
 
 14. Configure the Frontier executable as described in `docs/FRONTIER_INTEGRATION.md`, then choose **Test World ▶**.
 15. Verify the opening can be skipped with Escape and restores control.
-16. Confirm the selection prompt advances to **Move to the waiting allies** after the opening. Follow its labeled viewport cue and gold world marker, then confirm allied ownership transfers.
+16. Confirm the authored leader starts selected and the opening leaves one **Move to the waiting allies** prompt. Follow its labeled viewport cue and gold world marker, then confirm allied ownership transfers.
 17. Defeat the first group and confirm the second group activates. Follow the optional side-path prompt: `both` guidance shows a labeled viewport cue and gold world marker at `reward_checkpoint`. Confirm the leader receives the permanent reward. If the leader has an authored ability, select the leader and press `1` during the final encounter.
 18. Defeat the final group, move to the goal, and confirm the ending scene and `MISSION VICTORY` appear.
 19. Repeat once after saving mid-mission. Confirm completed objectives, defeated groups, hero state, and rewards restore.
