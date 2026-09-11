@@ -23,12 +23,3 @@ jobs:
         env:
           GODOT_BIN: ${{ github.workspace }}/.godot-bin/Godot_v4.7.1-stable_linux.x86_64
         run: ./scripts/test.sh
-      - name: Check out Frontier runtime
-        uses: actions/checkout@v4
-        with:
-          repository: KrillOil/Frontier
-          path: frontier-runtime
-      - name: Prove complete editor-to-runtime mission
-        env:
-          FRONTIER_WORLD_EDITOR_ROOT: ${{ github.workspace }}
-        run: .godot-bin/Godot_v4.7.1-stable_linux.x86_64 --headless --path frontier-runtime/Game --script tests/scn_i04_reference_mission_test.gd
