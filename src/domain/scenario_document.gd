@@ -11,6 +11,9 @@ const CINEMATIC_STEPS := ["dialogue", "camera", "unit_cue", "audio"]
 var data: Dictionary = {}
 var errors: Array[String] = []
 var source_path := ""
+var dirty := false
+var history: Array[Dictionary] = []
+var redo_history: Array[Dictionary] = []
 
 
 func load_from_file(path: String, world: Dictionary) -> bool:
@@ -21,7 +24,75 @@ func load_from_file(path: String, world: Dictionary) -> bool:
 	if not json.data is Dictionary: return _fail(["scenario.json: root must be an object"])
 	var failures := validate(json.data, world)
 	if not failures.is_empty(): return _fail(failures)
-	data = json.data.duplicate(true); source_path = path; errors.clear(); return true
+	data = json.data.duplicate(true); source_path = path; dirty = false; history.clear(); redo_history.clear(); errors.clear(); return true
+
+
+func create(scenario_id: String, title: String, description: String, player_faction_id: String, world: Dictionary) -> bool:
+	var candidate := {"scenario_format_version":FORMAT_VERSION,"scenario_id":scenario_id,"title":title,"description":description,"player_faction_id":player_faction_id,"regions":[],"unit_groups":[],"objectives":[],"cinematics":[],"sequences":[]}
+	var failures := validate(candidate, world)
+	if not failures.is_empty(): return _fail(failures)
+	data = candidate; dirty = true; history.clear(); redo_history.clear(); errors.clear(); return true
+
+
+func update_metadata(title: String, description: String, player_faction_id: String, world: Dictionary) -> bool:
+	var candidate: Dictionary = data.duplicate(true); candidate.title = title; candidate.description = description; candidate.player_faction_id = player_faction_id
+	return _commit(candidate, world)
+
+
+func add_region(region_id: String, display_name: String, shape: String, points: Array, world: Dictionary) -> bool:
+	var candidate: Dictionary = data.duplicate(true)
+	candidate.regions.append({"region_id":region_id,"display_name":display_name,"shape":shape,"points":points.duplicate(true)})
+	return _commit(candidate, world)
+
+
+func update_region(region_id: String, changes: Dictionary, world: Dictionary) -> bool:
+	var candidate: Dictionary = data.duplicate(true); var region := _find(candidate.regions, "region_id", region_id)
+	if region.is_empty(): return _fail(["Unknown scenario region '%s'" % region_id])
+	for key in ["display_name","shape","points"]:
+		if changes.has(key): region[key] = changes[key].duplicate(true) if changes[key] is Array else changes[key]
+	return _commit(candidate, world)
+
+
+func reverse_path(region_id: String, world: Dictionary) -> bool:
+	var region := find_region(region_id)
+	if region.is_empty() or region.shape != "path": return _fail(["Region '%s' is not a path" % region_id])
+	var points: Array = region.points.duplicate(true); points.reverse()
+	return update_region(region_id, {"points":points}, world)
+
+
+func delete_region(region_id: String, world: Dictionary) -> bool:
+	var references := region_references(region_id)
+	if not references.is_empty(): return _fail(["Cannot delete region '%s'; referenced by %s" % [region_id, ", ".join(references)]])
+	var candidate: Dictionary = data.duplicate(true); candidate.regions = candidate.regions.filter(func(region): return region.region_id != region_id)
+	if candidate.regions.size() == data.regions.size(): return _fail(["Unknown scenario region '%s'" % region_id])
+	return _commit(candidate, world)
+
+
+func find_region(region_id: String) -> Dictionary: return _find(data.get("regions", []), "region_id", region_id)
+
+
+func region_references(region_id: String) -> Array[String]:
+	var result: Array[String] = []
+	for cinematic in data.get("cinematics", []):
+		for step_index in cinematic.steps.size():
+			if cinematic.steps[step_index].get("region_id") == region_id or cinematic.steps[step_index].get("target_region_id") == region_id: result.append("cinematic %s step %d" % [cinematic.cinematic_id,step_index])
+	for sequence in data.get("sequences", []):
+		if sequence.event.get("region_id") == region_id: result.append("sequence %s event" % sequence.sequence_id)
+		for action_index in sequence.actions.size():
+			var action: Dictionary = sequence.actions[action_index]
+			if action.get("region_id") == region_id or action.get("target_region_id") == region_id or action.get("leash_region_id") == region_id: result.append("sequence %s action %d" % [sequence.sequence_id,action_index])
+	return result
+
+
+func undo() -> bool:
+	if history.is_empty(): return false
+	redo_history.append(data.duplicate(true)); data = history.pop_back(); dirty = true; return true
+func redo() -> bool:
+	if redo_history.is_empty(): return false
+	history.append(data.duplicate(true)); data = redo_history.pop_back(); dirty = true; return true
+func can_undo() -> bool: return not history.is_empty()
+func can_redo() -> bool: return not redo_history.is_empty()
+func mark_saved(path: String) -> void: source_path = path; dirty = false
 
 
 func validate(candidate: Dictionary, world: Dictionary) -> Array[String]:
@@ -53,6 +124,18 @@ func canonical_text() -> String:
 
 
 func content_hash() -> String: return canonical_text().sha256_text()
+
+
+func _commit(candidate: Dictionary, world: Dictionary) -> bool:
+	var failures := validate(candidate, world)
+	if not failures.is_empty(): return _fail(failures)
+	history.append(data.duplicate(true)); redo_history.clear(); data = candidate; dirty = true; errors.clear(); return true
+
+
+func _find(values: Array, field: String, id: String) -> Dictionary:
+	for value in values:
+		if value.get(field) == id: return value
+	return {}
 
 
 func _validate_regions(values: Array, failures: Array[String]) -> Dictionary:

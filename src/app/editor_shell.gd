@@ -7,6 +7,7 @@ const TerrainCliffWaterScript = preload("res://src/domain/terrain_cliff_water.gd
 const TerrainPathingScript = preload("res://src/domain/terrain_pathing.gd")
 const TerrainEnvironmentScript = preload("res://src/domain/terrain_environment.gd")
 const TerrainWorkflowScript = preload("res://src/domain/terrain_workflow.gd")
+const ScenarioDocumentScript = preload("res://src/domain/scenario_document.gd")
 const DEFAULT_PACKAGE := "res://worlds/crimsdale"
 
 var package = WorldPackageScript.new()
@@ -77,6 +78,12 @@ var workflow_domains: Dictionary = {}
 var workflow_mode: OptionButton
 var workflow
 var terrain_clipboard: Dictionary = {}
+var scenario_dialog: Window
+var scenario_fields: Dictionary = {}
+var scenario_region_list: ItemList
+var scenario_region_shape: OptionButton
+var scenario_region_fields: Dictionary = {}
+var scenario_remove_confirmation: ConfirmationDialog
 var pending_after_save: Callable
 var definition_list: ItemList
 var definition_id_field: LineEdit
@@ -107,6 +114,7 @@ func _ready() -> void:
 	_build_pathing_editor()
 	_build_environment_editor()
 	_build_workflow_editor()
+	_build_scenario_editor()
 	_build_object_editor()
 	_build_terrain_editor()
 	_build_package_dialogs()
@@ -139,6 +147,7 @@ func _build_toolbar() -> void:
 	_add_button(bar, "Pathing", show_pathing_editor)
 	_add_button(bar, "Environment", show_environment_editor)
 	_add_button(bar, "Workflow", show_workflow_editor)
+	_add_button(bar, "Scenario", show_scenario_editor)
 	bar.add_spacer(false)
 	_add_button(bar, "Undo", perform_undo)
 	_add_button(bar, "Redo", perform_redo)
@@ -767,6 +776,113 @@ func _workflow_recenter() -> void:
 	status("Minimap recentered at %0.1f, %0.1f" % [orbit_target.x, orbit_target.z])
 
 
+func _build_scenario_editor() -> void:
+	scenario_dialog = Window.new(); scenario_dialog.title = "Scenario Editor — Regions"; scenario_dialog.size = Vector2i(680, 760); scenario_dialog.close_requested.connect(scenario_dialog.hide); add_child(scenario_dialog)
+	var scroll := ScrollContainer.new(); scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT); scroll.offset_left = 18; scroll.offset_top = 18; scroll.offset_right = -18; scroll.offset_bottom = -18; scenario_dialog.add_child(scroll)
+	var form := VBoxContainer.new(); form.size_flags_horizontal = Control.SIZE_EXPAND_FILL; scroll.add_child(form)
+	var help := Label.new(); help.text = "Scenario data is portable and saved with the world. Regions use world metres: point (one position), rectangle (opposite corners), or path (ordered endpoints in this increment). IDs become stable references."; help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; form.add_child(help)
+	for field in ["scenario_id","title","description","player_faction_id"]: scenario_fields[field] = _add_field(form, field.replace("_", " ").capitalize())
+	scenario_fields.scenario_id.editable = false
+	_add_button(form, "Create Scenario", _create_scenario)
+	_add_button(form, "Apply Scenario Details", _apply_scenario_metadata)
+	_add_button(form, "Remove Scenario…", func(): scenario_remove_confirmation.popup_centered())
+	var divider := HSeparator.new(); form.add_child(divider)
+	scenario_region_list = ItemList.new(); scenario_region_list.custom_minimum_size.y = 150; scenario_region_list.item_selected.connect(_load_scenario_region); form.add_child(scenario_region_list)
+	for field in ["region_id","display_name"]: scenario_region_fields[field] = _add_field(form, field.replace("_", " ").capitalize())
+	scenario_region_shape = OptionButton.new()
+	for shape in ["point","rectangle","path"]: scenario_region_shape.add_item(shape.capitalize()); scenario_region_shape.set_item_metadata(scenario_region_shape.item_count - 1, shape)
+	form.add_child(scenario_region_shape)
+	for field in ["x1","z1","x2","z2"]: scenario_region_fields[field] = _add_field(form, field.to_upper())
+	_add_button(form, "Add Region", _add_scenario_region)
+	_add_button(form, "Update Selected Region", _update_scenario_region)
+	_add_button(form, "Reverse Selected Path", _reverse_scenario_path)
+	_add_button(form, "Delete Selected Region", _delete_scenario_region)
+	scenario_remove_confirmation = ConfirmationDialog.new(); scenario_remove_confirmation.title = "Remove Scenario"; scenario_remove_confirmation.dialog_text = "Remove scenario.json from this world on the next save? Terrain, definitions, and placed objects remain."; scenario_remove_confirmation.confirmed.connect(_remove_scenario); add_child(scenario_remove_confirmation)
+
+
+func show_scenario_editor() -> void:
+	_refresh_scenario_form(); scenario_dialog.popup_centered(); status("Scenario workspace — details and world-space regions")
+
+
+func _refresh_scenario_form() -> void:
+	scenario_region_list.clear()
+	var scenario = package.scenario
+	if scenario == null:
+		scenario_fields.scenario_id.text = ""
+		scenario_fields.title.text = ""
+		scenario_fields.description.text = ""
+		scenario_fields.player_faction_id.text = "frontier_company"
+		return
+	scenario_fields.scenario_id.text = scenario.data.scenario_id; scenario_fields.title.text = scenario.data.title; scenario_fields.description.text = scenario.data.description; scenario_fields.player_faction_id.text = scenario.data.player_faction_id
+	var regions: Array = scenario.data.regions.duplicate(); regions.sort_custom(func(a,b): return a.region_id < b.region_id)
+	for region in regions:
+		scenario_region_list.add_item("%s  [%s]  %s" % [region.display_name, region.shape, region.region_id]); scenario_region_list.set_item_metadata(scenario_region_list.item_count - 1, region.region_id)
+
+
+func _create_scenario() -> void:
+	if package.scenario != null: status("This world already has a scenario document"); return
+	var scenario = ScenarioDocumentScript.new(); var scenario_id := str(package.world.get("world_id", "world")) + "_guided_tutorial"
+	if scenario.create(scenario_id, "Crimsdale Guided Tutorial", "A guided hero-and-squad journey through Crimsdale.", "frontier_company", package.world):
+		package.scenario = scenario; package.scenario_removed = false; _refresh_scenario_form(); refresh_all(); status("Created scenario '%s'" % scenario_id)
+	else: package.errors = scenario.errors; show_errors()
+
+
+func _apply_scenario_metadata() -> void:
+	if package.scenario == null: status("Create a scenario first"); return
+	if package.scenario.update_metadata(scenario_fields.title.text, scenario_fields.description.text, scenario_fields.player_faction_id.text, package.world): refresh_all(); status("Scenario details updated")
+	else: package.errors = package.scenario.errors; show_errors()
+
+
+func _remove_scenario() -> void:
+	package.remove_scenario(); _refresh_scenario_form(); refresh_all(); status("Scenario removed; save to commit removal")
+
+
+func _scenario_points() -> Array:
+	var first := Vector3(float(scenario_region_fields.x1.text), 0, float(scenario_region_fields.z1.text)); var second := Vector3(float(scenario_region_fields.x2.text), 0, float(scenario_region_fields.z2.text))
+	if package.terrain != null:
+		first.y = package.terrain.sample_height(first.x, first.z); second.y = package.terrain.sample_height(second.x, second.z)
+	var shape: String = scenario_region_shape.get_item_metadata(scenario_region_shape.selected)
+	return [[first.x,first.y,first.z]] if shape == "point" else [[first.x,first.y,first.z],[second.x,second.y,second.z]]
+
+
+func _add_scenario_region() -> void:
+	if package.scenario == null: status("Create a scenario first"); return
+	var shape: String = scenario_region_shape.get_item_metadata(scenario_region_shape.selected)
+	if package.scenario.add_region(scenario_region_fields.region_id.text, scenario_region_fields.display_name.text, shape, _scenario_points(), package.world): _refresh_scenario_form(); refresh_all(); status("Added %s region '%s'" % [shape,scenario_region_fields.region_id.text])
+	else: package.errors = package.scenario.errors; show_errors()
+
+
+func _selected_scenario_region_id() -> String:
+	var selected := scenario_region_list.get_selected_items(); return "" if selected.is_empty() else scenario_region_list.get_item_metadata(selected[0])
+
+
+func _load_scenario_region(index: int) -> void:
+	var region: Dictionary = package.scenario.find_region(scenario_region_list.get_item_metadata(index)); scenario_region_fields.region_id.text = region.region_id; scenario_region_fields.region_id.editable = false; scenario_region_fields.display_name.text = region.display_name
+	for shape_index in scenario_region_shape.item_count:
+		if scenario_region_shape.get_item_metadata(shape_index) == region.shape: scenario_region_shape.select(shape_index)
+	scenario_region_fields.x1.text = str(region.points[0][0]); scenario_region_fields.z1.text = str(region.points[0][2]); var last: Array = region.points[-1]; scenario_region_fields.x2.text = str(last[0]); scenario_region_fields.z2.text = str(last[2])
+	status("Selected %s region '%s'" % [region.shape,region.region_id])
+
+
+func _update_scenario_region() -> void:
+	var id := _selected_scenario_region_id(); if id.is_empty(): status("Select a region to update"); return
+	var shape: String = scenario_region_shape.get_item_metadata(scenario_region_shape.selected)
+	if package.scenario.update_region(id, {"display_name":scenario_region_fields.display_name.text,"shape":shape,"points":_scenario_points()}, package.world): _refresh_scenario_form(); refresh_all(); status("Updated region '%s'" % id)
+	else: package.errors = package.scenario.errors; show_errors()
+
+
+func _reverse_scenario_path() -> void:
+	var id := _selected_scenario_region_id(); if id.is_empty(): status("Select a path region"); return
+	if package.scenario.reverse_path(id, package.world): _refresh_scenario_form(); refresh_all(); status("Reversed path '%s'" % id)
+	else: package.errors = package.scenario.errors; show_errors()
+
+
+func _delete_scenario_region() -> void:
+	var id := _selected_scenario_region_id(); if id.is_empty(): status("Select a region to delete"); return
+	if package.scenario.delete_region(id, package.world): _refresh_scenario_form(); refresh_all(); status("Deleted region '%s'" % id)
+	else: package.errors = package.scenario.errors; show_errors()
+
+
 func apply_environment_preview()->void:
 	if DisplayServer.get_name()=="headless" or package.terrain==null:return
 	var world_environment:WorldEnvironment=world_root.get_node("EnvironmentPreview");var sun:DirectionalLight3D=world_root.get_node("SunPreview")
@@ -789,8 +905,29 @@ func refresh_all() -> void:
 	refresh_inspector()
 	refresh_definition_list()
 	refresh_terrain_preview()
+	refresh_scenario_regions()
 	apply_environment_preview()
-	dirty_label.text = "Unsaved changes" if package.dirty or (package.terrain != null and package.terrain.dirty) else "Saved"
+	dirty_label.text = "Unsaved changes" if package.dirty or package.scenario_removed or (package.terrain != null and package.terrain.dirty) or (package.scenario != null and package.scenario.dirty) else "Saved"
+
+
+func refresh_scenario_regions() -> void:
+	var existing := world_root.get_node_or_null("ScenarioRegions")
+	if existing != null: existing.free()
+	if package.scenario == null: return
+	var root_3d := Node3D.new(); root_3d.name = "ScenarioRegions"; world_root.add_child(root_3d)
+	for region in package.scenario.data.regions:
+		var marker := MeshInstance3D.new(); marker.name = region.region_id
+		var material := StandardMaterial3D.new(); material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED; material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA; material.albedo_color = Color(0.2,0.85,1.0,0.45)
+		if region.shape == "point":
+			var sphere := SphereMesh.new(); sphere.radius = 0.45; sphere.height = 0.9; marker.mesh = sphere; marker.position = array_to_vector(region.points[0]) + Vector3.UP * 0.5
+		elif region.shape == "rectangle":
+			var first := array_to_vector(region.points[0]); var second := array_to_vector(region.points[1]); var box := BoxMesh.new(); box.size = Vector3(maxf(absf(second.x-first.x),0.2),0.12,maxf(absf(second.z-first.z),0.2)); marker.mesh = box; marker.position = (first+second)/2.0 + Vector3.UP*0.08
+		else:
+			var line := ImmediateMesh.new(); line.surface_begin(Mesh.PRIMITIVE_LINE_STRIP)
+			for point in region.points: line.surface_add_vertex(array_to_vector(point)+Vector3.UP*0.15)
+			line.surface_end(); marker.mesh = line
+		marker.material_override = material; root_3d.add_child(marker)
+		var label := Label3D.new(); label.text = "%s\n[%s]" % [region.display_name,region.shape]; label.billboard = BaseMaterial3D.BILLBOARD_ENABLED; label.no_depth_test = true; label.position = array_to_vector(region.points[0]) + Vector3.UP; root_3d.add_child(label)
 
 
 func refresh_terrain_preview() -> void:
@@ -1626,7 +1763,11 @@ func unique_definition_id(base: String) -> String:
 
 
 func perform_undo() -> void:
-	if package.terrain != null and package.terrain.can_undo() and package.terrain.undo():
+	if package.scenario != null and scenario_dialog.visible and package.scenario.can_undo() and package.scenario.undo():
+		selected_instance_id = ""
+		_refresh_scenario_form()
+		refresh_all()
+	elif package.terrain != null and package.terrain.can_undo() and package.terrain.undo():
 		selected_instance_id = ""
 		refresh_all()
 	elif package.undo():
@@ -1635,7 +1776,11 @@ func perform_undo() -> void:
 
 
 func perform_redo() -> void:
-	if package.terrain != null and package.terrain.can_redo() and package.terrain.redo():
+	if package.scenario != null and scenario_dialog.visible and package.scenario.can_redo() and package.scenario.redo():
+		selected_instance_id = ""
+		_refresh_scenario_form()
+		refresh_all()
+	elif package.terrain != null and package.terrain.can_redo() and package.terrain.redo():
 		selected_instance_id = ""
 		refresh_all()
 	elif package.redo():
@@ -1652,7 +1797,7 @@ func save_package() -> void:
 
 
 func test_world() -> void:
-	if package.dirty:
+	if has_unsaved_changes():
 		request_after_save(launch_test_world)
 		return
 	launch_test_world()
@@ -1688,7 +1833,7 @@ func build_test_world_launch(executable: String, frontier_project_path: String, 
 
 
 func request_open_package() -> void:
-	if package.dirty:
+	if has_unsaved_changes():
 		request_after_save(package_dialog.popup_centered_ratio.bind(0.75))
 	else:
 		package_dialog.popup_centered_ratio(0.75)
@@ -1752,7 +1897,7 @@ func _unhandled_key_input(event: InputEvent) -> void:
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST:
-		if package != null and package.dirty:
+		if package != null and has_unsaved_changes():
 			request_after_save(func(): get_tree().quit())
 		else:
 			get_tree().quit()
@@ -1772,6 +1917,10 @@ func show_blocking_error(message: String) -> void:
 func status(message: String) -> void:
 	if status_label != null:
 		status_label.text = message
+
+
+func has_unsaved_changes() -> bool:
+	return package.dirty or package.scenario_removed or (package.terrain != null and package.terrain.dirty) or (package.scenario != null and package.scenario.dirty)
 
 
 func array_to_vector(value: Array) -> Vector3:

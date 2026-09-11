@@ -9,10 +9,14 @@ Frontier World Editor is the source of truth for authored content. A world packa
 ```text
 worlds/<world_id>/
 ├── definitions.json
-└── world.json
+├── world.json
+├── terrain.json   (optional)
+└── scenario.json  (optional)
 ```
 
-Both files use `format_version: 1`, UTF-8 JSON, stable identifiers, and deterministic ordering on save.
+The core composition files use `format_version: 1`; terrain and scenario use their named v1 version fields. All use UTF-8 JSON, stable identifiers, and deterministic ordering on save.
+
+Terrain and scenario documents have independent version fields but participate in the same protected package save. A failed transaction restores all prior package files together.
 
 ## Definitions
 
@@ -61,4 +65,3 @@ Reject:
 Load → save → load must preserve authored meaning. Formatting is not meaningful; identities, references, membership, transforms, and spawn points are.
 
 The executable contract is in [`schemas/`](../schemas/).
-

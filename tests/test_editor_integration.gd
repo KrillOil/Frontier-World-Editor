@@ -69,6 +69,15 @@ func run() -> void:
 	editor.workflow_fields.paste_z.value = 2
 	editor._workflow_paste()
 	_check(editor.package.terrain.can_undo(), "Creator paste is available as one undoable operation")
+	editor.show_scenario_editor()
+	editor._create_scenario()
+	_check(editor.package.scenario != null and editor.scenario_fields.scenario_id.text == "crimsdale_guided_tutorial", "Creator can add a scenario document to the open world")
+	editor.scenario_region_fields.region_id.text = "tutorial_start"
+	editor.scenario_region_fields.display_name.text = "Tutorial Start"
+	editor.scenario_region_fields.x1.text = "1"
+	editor.scenario_region_fields.z1.text = "2"
+	editor._add_scenario_region()
+	_check(editor.package.scenario.find_region("tutorial_start").shape == "point" and editor.world_root.get_node_or_null("ScenarioRegions/tutorial_start") != null, "Creator-authored region is visible in the viewport")
 	var guard: Dictionary = editor.package.find_definition("unit_crimsdale_guard")
 	_check(guard.owner == "player" and guard.max_health == 120.0, "Crimsdale guard exposes authored gameplay fields")
 	editor.load_definition_form(2 if editor.definition_list.get_item_metadata(2) == "unit_crimsdale_guard" else 3)

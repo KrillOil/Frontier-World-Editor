@@ -58,5 +58,6 @@ The test command verifies the exact Godot version and runs the shell checks head
 - Cliffs & Water: raise/lower discrete cliff cells, author traversable ramp edges, replace cliff style, and preview global shallow/deep water with derived shores
 - Pathing: toggle the reason-coded walkability overlay, paint/erase movement or placement blocks, inspect three clearance sizes, and validate starts and isolated areas
 - Environment: author focused sun, ambient, fog, and portable sky settings; toggle the Godot 4.7.1 parity preview independently of saved data
+- Scenario: create portable mission metadata and author labeled point, rectangle, and path regions directly against the world
 
 `Test World` uses `FRONTIER_EXECUTABLE` and the accepted `--world-package <path> --spawn player_start` contract. Set `FRONTIER_PROJECT_PATH` as well when the executable is Godot 4.7.1 and Frontier is being run from source.

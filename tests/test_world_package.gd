@@ -10,10 +10,12 @@ func _init() -> void:
 	DirAccess.make_dir_recursive_absolute(temporary_package)
 	copy_file("res://worlds/crimsdale/definitions.json", temporary_package.path_join("definitions.json"))
 	copy_file("res://worlds/crimsdale/world.json", temporary_package.path_join("world.json"))
+	copy_file("res://tests/fixtures/scenario_tiny/scenario.json", temporary_package.path_join("scenario.json"))
 	var package = WorldPackageScript.new()
 	_check(package.load_from_directory(temporary_package), "Crimsdale fixture loads")
 	_check(package.validate().is_empty(), "Crimsdale fixture validates")
 	_check(package.resource_errors().is_empty(), "Crimsdale preview resources resolve")
+	_check(package.scenario != null and package.scenario.data.scenario_id == "tiny_guided_path", "Optional scenario document loads with its world references")
 	var guard: Dictionary = package.find_definition("unit_crimsdale_guard")
 	_check(guard.owner == "player" and guard.attack_damage == 14.0, "Unit gameplay definition loads")
 	var invalid_guard := guard.duplicate(true)
@@ -56,6 +58,7 @@ func _init() -> void:
 	var reopened = WorldPackageScript.new()
 	_check(reopened.load_from_directory(temporary_package), "Saved package reopens")
 	_check(reopened.world.objects.size() == object_count + 1, "Semantic round trip preserves instances")
+	_check(reopened.scenario != null and reopened.scenario.canonical_text() == package.scenario.canonical_text(), "Scenario save and reopen preserves authored meaning")
 
 	if failures.is_empty():
 		print("PASS: authored package validation and commands")
