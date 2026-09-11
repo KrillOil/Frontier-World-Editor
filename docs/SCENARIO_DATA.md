@@ -15,11 +15,12 @@
 ## Authored collections
 
 - Regions: point, rectangle, or path geometry.
+- Visibility: optional fog, initial explored radius, and hidden-by-default policy.
 - Unit groups: stable references to placed unit instance IDs.
 - Objectives: main or optional, initially hidden or active, with ordered steps and optional checkpoint regions.
 - Tutorials: reusable control guidance with viewport/world indicators, optional highlights, and optional sequence gates.
 - Encounters: a primary unit group, initial state, AI behavior, leash bounds, optional patrol path, all-defeated completion, and ordered reinforcement groups.
-- Cinematics: ordered typed steps; v1 supports dialogue, camera, unit cue, and audio.
+- Cinematics: ordered typed dialogue/subtitle, camera, unit cue, and audio steps with skippable, letterbox, and control-lock playback flags.
 - Sequences: one event, typed conditions, and ordered actions.
 
 ## Supported events

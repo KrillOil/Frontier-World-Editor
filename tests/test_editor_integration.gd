@@ -98,6 +98,9 @@ func run() -> void:
 	editor.group_fields.group_id.text="raiders";editor.group_fields.instance_ids.text="crimsdale_raider_001";editor._add_group()
 	editor.encounter_fields.encounter_id.text="first_raid";editor.encounter_fields.group_id.text="raiders";editor.encounter_fields.leash_region_id.text="tutorial_start";editor._add_encounter()
 	_check(editor.package.scenario.data.unit_groups.size()==2 and editor.package.scenario.data.encounters[0].initial_state=="inactive","Creator groups placed units and authors a dormant encounter without JSON")
+	editor.show_cinematic_editor();editor.cinematic_fields.cinematic_id.text="opening";editor._add_cinematic();editor._reselect_cinematic("opening");editor.cinematic_fields.a.text="crimsdale_guard_001";editor.cinematic_fields.text.text="Follow me beyond the ridge.";editor.cinematic_fields.number.text="3";_check(editor._cinematic_step_from_form().get("type")=="dialogue","Cinematic form defaults to dialogue");editor._add_cinematic_step();editor._play_cinematic_preview();editor._skip_cinematic_preview()
+	_check(editor.package.scenario.data.cinematics.size()==1,"Creator adds a cinematic: "+" | ".join(editor.package.scenario.errors))
+	if editor.package.scenario.data.cinematics.size()==1:_check(editor.package.scenario.data.cinematics[0].steps.size()==1 and "Follow me" in editor.package.scenario.data.cinematics[0].steps[0].text and "SKIPPED" in editor.cinematic_preview.text,"Creator authors, subtitles, scrubs, plays, and skips a cinematic without optional audio: "+" | ".join(editor.package.scenario.errors))
 	editor.show_sequence_editor()
 	editor.sequence_fields.sequence_id.text = "mission_start"
 	editor._create_sequence()
@@ -106,8 +109,11 @@ func run() -> void:
 	for action_index in editor.sequence_action_type.item_count:
 		if editor.sequence_action_type.get_item_metadata(action_index)=="set_encounter":editor.sequence_action_type.select(action_index)
 	editor.sequence_fields.a.text="raiders";editor.sequence_fields.b.text="active";editor.sequence_fields.c.text="attack";editor.sequence_fields.text.text="tutorial_start";editor._add_sequence_action()
+	for action_index in editor.sequence_action_type.item_count:
+		if editor.sequence_action_type.get_item_metadata(action_index)=="play_cinematic":editor.sequence_action_type.select(action_index)
+	editor.sequence_fields.a.text="opening";editor._add_sequence_action()
 	editor._preview_encounters()
-	_check(editor.sequence_action_type.item_count == 10 and editor.sequence_actions.item_count == 2, "Sequence workspace exposes the constrained action vocabulary and ordered steps")
+	_check(editor.sequence_action_type.item_count == 10 and editor.sequence_actions.item_count == 3, "Sequence workspace exposes the constrained action vocabulary and ordered steps")
 	_check("mission_start via scenario_start" in editor.encounter_preview.text,"Encounter preview identifies its activation sequence, membership, and labeled bounds")
 	var guard: Dictionary = editor.package.find_definition("unit_crimsdale_guard")
 	_check(guard.owner == "player" and guard.max_health == 120.0, "Crimsdale guard exposes authored gameplay fields")

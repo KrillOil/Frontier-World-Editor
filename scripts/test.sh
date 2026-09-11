@@ -28,3 +28,4 @@ fi
 "$godot_bin" --headless --path "$project_root" --script res://tests/test_scenario_objectives.gd
 "$godot_bin" --headless --path "$project_root" --script res://tests/test_scenario_encounters.gd
 "$godot_bin" --headless --path "$project_root" --script res://tests/test_hero_rewards.gd
+"$godot_bin" --headless --path "$project_root" --script res://tests/test_scenario_cinematics.gd

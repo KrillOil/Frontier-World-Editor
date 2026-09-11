@@ -28,7 +28,7 @@ func load_from_file(path: String, world: Dictionary) -> bool:
 
 
 func create(scenario_id: String, title: String, description: String, player_faction_id: String, world: Dictionary) -> bool:
-	var candidate := {"scenario_format_version":FORMAT_VERSION,"scenario_id":scenario_id,"title":title,"description":description,"player_faction_id":player_faction_id,"regions":[],"unit_groups":[],"objectives":[],"tutorials":[],"encounters":[],"cinematics":[],"sequences":[]}
+	var candidate := {"scenario_format_version":FORMAT_VERSION,"scenario_id":scenario_id,"title":title,"description":description,"player_faction_id":player_faction_id,"visibility":{"fog_enabled":true,"explored_radius_m":8.0,"hidden_by_default":true},"regions":[],"unit_groups":[],"objectives":[],"tutorials":[],"encounters":[],"cinematics":[],"sequences":[]}
 	var failures := validate(candidate, world)
 	if not failures.is_empty(): return _fail(failures)
 	data = candidate; dirty = true; history.clear(); redo_history.clear(); errors.clear(); return true
@@ -37,6 +37,10 @@ func create(scenario_id: String, title: String, description: String, player_fact
 func update_metadata(title: String, description: String, player_faction_id: String, world: Dictionary) -> bool:
 	var candidate: Dictionary = data.duplicate(true); candidate.title = title; candidate.description = description; candidate.player_faction_id = player_faction_id
 	return _commit(candidate, world)
+
+
+func update_visibility(fog_enabled:bool,explored_radius_m:float,hidden_by_default:bool,world:Dictionary)->bool:
+	var candidate:Dictionary=data.duplicate(true);candidate.visibility={"fog_enabled":fog_enabled,"explored_radius_m":explored_radius_m,"hidden_by_default":hidden_by_default};return _commit(candidate,world)
 
 
 func add_region(region_id: String, display_name: String, shape: String, points: Array, world: Dictionary) -> bool:
@@ -186,6 +190,45 @@ func delete_encounter(encounter_id:String,world:Dictionary)->bool:
 	return _commit(candidate,world)
 
 
+func add_cinematic(cinematic_id:String,skippable:bool,letterbox:bool,control_lock:bool,world:Dictionary)->bool:
+	var candidate:Dictionary=data.duplicate(true);candidate.cinematics.append({"cinematic_id":cinematic_id,"skippable":skippable,"letterbox":letterbox,"control_lock":control_lock,"steps":[]});return _commit(candidate,world)
+
+
+func update_cinematic(cinematic_id:String,changes:Dictionary,world:Dictionary)->bool:
+	var candidate:Dictionary=data.duplicate(true);var cinematic:=_find(candidate.cinematics,"cinematic_id",cinematic_id)
+	if cinematic.is_empty():return _fail(["Unknown cinematic '%s'"%cinematic_id])
+	for key in ["skippable","letterbox","control_lock"]:
+		if changes.has(key):cinematic[key]=changes[key]
+	return _commit(candidate,world)
+
+
+func delete_cinematic(cinematic_id:String,world:Dictionary)->bool:
+	for sequence in data.get("sequences",[]):
+		for action in sequence.actions:
+			if action.get("type")=="play_cinematic" and action.get("cinematic_id")==cinematic_id:return _fail(["Cannot delete cinematic '%s'; referenced by sequence %s"%[cinematic_id,sequence.sequence_id]])
+	var candidate:Dictionary=data.duplicate(true);var prior:int=candidate.cinematics.size();candidate.cinematics=candidate.cinematics.filter(func(cinematic):return cinematic.cinematic_id!=cinematic_id)
+	if candidate.cinematics.size()==prior:return _fail(["Unknown cinematic '%s'"%cinematic_id])
+	return _commit(candidate,world)
+
+
+func add_cinematic_step(cinematic_id:String,step:Dictionary,world:Dictionary)->bool:
+	var candidate:Dictionary=data.duplicate(true);var cinematic:=_find(candidate.cinematics,"cinematic_id",cinematic_id)
+	if cinematic.is_empty():return _fail(["Unknown cinematic '%s'"%cinematic_id])
+	cinematic.steps.append(step.duplicate(true));return _commit(candidate,world)
+
+
+func move_cinematic_step(cinematic_id:String,index:int,direction:int,world:Dictionary)->bool:
+	var candidate:Dictionary=data.duplicate(true);var cinematic:=_find(candidate.cinematics,"cinematic_id",cinematic_id);var destination:=index+direction
+	if cinematic.is_empty() or index<0 or destination<0 or index>=cinematic.steps.size() or destination>=cinematic.steps.size():return _fail(["Cinematic step cannot move farther"])
+	var step=cinematic.steps.pop_at(index);cinematic.steps.insert(destination,step);return _commit(candidate,world)
+
+
+func delete_cinematic_step(cinematic_id:String,index:int,world:Dictionary)->bool:
+	var candidate:Dictionary=data.duplicate(true);var cinematic:=_find(candidate.cinematics,"cinematic_id",cinematic_id)
+	if cinematic.is_empty() or index<0 or index>=cinematic.steps.size():return _fail(["Unknown cinematic step"])
+	cinematic.steps.remove_at(index);return _commit(candidate,world)
+
+
 func group_references(group_id:String)->Array[String]:
 	var result:Array[String]=[]
 	for encounter in data.get("encounters",[]):
@@ -297,7 +340,7 @@ func mark_saved(path: String) -> void: source_path = path; dirty = false
 
 func validate(candidate: Dictionary, world: Dictionary) -> Array[String]:
 	var failures: Array[String] = []
-	_exact_optional(candidate, ["scenario_format_version","scenario_id","title","description","player_faction_id","regions","unit_groups","objectives","cinematics","sequences"], ["tutorials","encounters"], "scenario.json", failures)
+	_exact_optional(candidate, ["scenario_format_version","scenario_id","title","description","player_faction_id","regions","unit_groups","objectives","cinematics","sequences"], ["tutorials","encounters","visibility"], "scenario.json", failures)
 	if candidate.get("scenario_format_version") != FORMAT_VERSION: failures.append("scenario.json: unsupported scenario_format_version '%s'" % candidate.get("scenario_format_version"))
 	for field in ["scenario_id", "player_faction_id"]:
 		if not _valid_id(candidate.get(field)): failures.append("scenario.json.%s must be a stable ID" % field)
@@ -306,6 +349,9 @@ func validate(candidate: Dictionary, world: Dictionary) -> Array[String]:
 	for collection in ["regions","unit_groups","objectives","cinematics","sequences"]:
 		if not candidate.get(collection) is Array: failures.append("scenario.json.%s must be an array" % collection)
 	if not failures.is_empty(): return failures
+	if candidate.has("visibility"):
+		_exact(candidate.visibility,["fog_enabled","explored_radius_m","hidden_by_default"],"scenario.json.visibility",failures)
+		if not candidate.visibility.get("fog_enabled") is bool or float(candidate.visibility.get("explored_radius_m",0))<=0 or not candidate.visibility.get("hidden_by_default") is bool:failures.append("scenario.json.visibility has invalid settings")
 	var region_ids := _validate_regions(candidate.regions, failures)
 	var group_ids := _validate_groups(candidate.unit_groups, world, failures)
 	var objective_ids := _validate_objectives(candidate.objectives, region_ids, failures)
@@ -424,8 +470,8 @@ func _validate_cinematics(values: Array, regions: Dictionary, groups: Dictionary
 	for index in values.size():
 		var value = values[index]; var context := "scenario.json.cinematics[%d]" % index
 		if not value is Dictionary: continue
-		_exact(value, ["cinematic_id","skippable","steps"], context, failures)
-		if not value.get("skippable") is bool or not value.get("steps") is Array: failures.append("%s requires skippable and steps" % context); continue
+		_exact_optional(value, ["cinematic_id","skippable","steps"], ["letterbox","control_lock"], context, failures)
+		if not value.get("skippable") is bool or not value.get("steps") is Array or value.has("letterbox") and not value.letterbox is bool or value.has("control_lock") and not value.control_lock is bool: failures.append("%s requires valid playback flags and steps" % context); continue
 		for step_index in value.steps.size():
 			_validate_cinematic_step(value.steps[step_index], "%s.steps[%d]" % [context, step_index], regions, groups, instances, failures)
 	return ids
