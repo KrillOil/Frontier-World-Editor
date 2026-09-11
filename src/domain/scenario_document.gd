@@ -207,8 +207,10 @@ func update_encounter(encounter_id:String,changes:Dictionary,world:Dictionary)->
 	var candidate:Dictionary=data.duplicate(true);var encounter:=_find(candidate.get("encounters",[]),"encounter_id",encounter_id)
 	if encounter.is_empty():return _fail(["Unknown encounter '%s'"%encounter_id])
 	for key in ["group_id","initial_state","behavior","leash_region_id","patrol_path_region_id","completion","reinforcement_group_ids"]:
-		if changes.has(key) and changes[key] != "":encounter[key]=changes[key].duplicate() if changes[key] is Array else changes[key]
-		elif changes.has(key):encounter.erase(key)
+		if not changes.has(key):continue
+		var value=changes[key]
+		if value is String and value.is_empty():encounter.erase(key)
+		else:encounter[key]=value.duplicate() if value is Array else value
 	return _commit(candidate,world)
 
 
