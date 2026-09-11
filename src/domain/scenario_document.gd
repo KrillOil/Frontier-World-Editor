@@ -286,6 +286,12 @@ func add_cinematic_step(cinematic_id:String,step:Dictionary,world:Dictionary)->b
 	cinematic.steps.append(step.duplicate(true));return _commit(candidate,world)
 
 
+func update_cinematic_step(cinematic_id:String,index:int,step:Dictionary,world:Dictionary)->bool:
+	var candidate:Dictionary=data.duplicate(true);var cinematic:=_find(candidate.cinematics,"cinematic_id",cinematic_id)
+	if cinematic.is_empty() or index<0 or index>=cinematic.steps.size():return _fail(["Unknown cinematic timeline step"])
+	cinematic.steps[index]=step.duplicate(true);return _commit(candidate,world)
+
+
 func move_cinematic_step(cinematic_id:String,index:int,direction:int,world:Dictionary)->bool:
 	var candidate:Dictionary=data.duplicate(true);var cinematic:=_find(candidate.cinematics,"cinematic_id",cinematic_id);var destination:=index+direction
 	if cinematic.is_empty() or index<0 or destination<0 or index>=cinematic.steps.size() or destination>=cinematic.steps.size():return _fail(["Cinematic step cannot move farther"])
@@ -368,8 +374,12 @@ func delete_sequence_step(sequence_id: String, collection: String, index: int, w
 func flow_diagnostics() -> Array[String]:
 	var messages: Array[String] = []
 	for sequence in data.get("sequences", []):
-		if not sequence.enabled: messages.append("Sequence '%s' is disabled" % sequence.sequence_id)
-		if sequence.event.get("type") == "sequence_completed" and not _find(data.sequences, "sequence_id", sequence.event.get("sequence_id", "")).enabled: messages.append("Sequence '%s' waits on a disabled sequence" % sequence.sequence_id)
+		if not sequence is Dictionary:continue
+		if not sequence.get("enabled",false):messages.append("Sequence '%s' is disabled" % sequence.get("sequence_id","unnamed"))
+		var event=sequence.get("event",{})
+		if event is Dictionary and event.get("type") == "sequence_completed":
+			var dependency:=_find(data.sequences,"sequence_id",event.get("sequence_id",""))
+			if not dependency.is_empty() and not dependency.get("enabled",false):messages.append("Sequence '%s' waits on a disabled sequence" % sequence.get("sequence_id","unnamed"))
 	return messages
 
 
@@ -452,9 +462,18 @@ func _commit(candidate: Dictionary, world: Dictionary) -> bool:
 	history.append(data.duplicate(true)); redo_history.clear(); data = candidate; dirty = true; errors.clear(); return true
 
 
+func remove_invalid_collection_entry(collection:String,index:int,world:Dictionary)->bool:
+	if collection not in ["cinematics","sequences"]:return _fail(["Unsupported recovery collection '%s'"%collection])
+	var values=data.get(collection,[])
+	if not values is Array or index<0 or index>=values.size():return _fail(["Invalid recovery entry index"])
+	var prefix:="scenario.json.%s[%d]"%[collection,index];var current_failures:=validate(data,world)
+	if not current_failures.any(func(message):return str(message).begins_with(prefix)):return _fail(["Entry %d is not malformed"%(index+1)])
+	history.append(data.duplicate(true));redo_history.clear();data[collection].remove_at(index);dirty=true;errors=validate(data,world);return true
+
+
 func _find(values: Array, field: String, id: String) -> Dictionary:
 	for value in values:
-		if value.get(field) == id: return value
+		if value is Dictionary and value.get(field) == id: return value
 	return {}
 
 
@@ -613,7 +632,9 @@ func _validate_action(value, context: String, regions: Dictionary, groups: Dicti
 func _validate_sequence_cycles(values: Array, sequence_ids: Dictionary, failures: Array[String]) -> void:
 	var edges := {}; for id in sequence_ids: edges[id] = []
 	for sequence in values:
-		if sequence is Dictionary and sequence.get("event", {}).get("type") == "sequence_completed": edges[sequence.event.sequence_id].append(sequence.sequence_id)
+		if not sequence is Dictionary:continue
+		var event=sequence.get("event",{})
+		if event is Dictionary and event.get("type") == "sequence_completed" and edges.has(event.get("sequence_id")): edges[event.sequence_id].append(sequence.get("sequence_id",""))
 	var visiting := {}; var visited := {}
 	for id in edges:
 		if _cycle(id, edges, visiting, visited): failures.append("scenario.json.sequences contains a sequence_completed cycle at '%s'" % id); return
@@ -633,7 +654,7 @@ func _ids(values: Array, field: String, collection: String, failures: Array[Stri
 	for index in values.size():
 		if not values[index] is Dictionary: failures.append("scenario.json.%s[%d] must be an object" % [collection,index]); continue
 		var id = values[index].get(field)
-		if not _valid_id(id) or result.has(id): failures.append("scenario.json.%s has invalid or duplicate %s '%s'" % [collection, field, id])
+		if not _valid_id(id) or result.has(id): failures.append("scenario.json.%s[%d] has invalid or duplicate %s '%s'" % [collection,index,field,id])
 		else: result[id] = true
 	return result
 

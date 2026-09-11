@@ -110,8 +110,13 @@ var cinematic_dialog:Window
 var cinematic_list:ItemList
 var cinematic_step_list:ItemList
 var cinematic_fields:Dictionary={}
+var cinematic_field_rows:Dictionary={}
+var cinematic_field_labels:Dictionary={}
 var cinematic_step_type:OptionButton
 var cinematic_preview:RichTextLabel
+var validation_dialog:Window
+var validation_summary:Label
+var validation_list:ItemList
 var pending_after_save: Callable
 var definition_list: ItemList
 var definition_id_field: LineEdit
@@ -154,6 +159,7 @@ func _ready() -> void:
 	_build_guidance_editor()
 	_build_encounter_editor()
 	_build_cinematic_editor()
+	_build_validation_results()
 	_build_object_editor()
 	_build_terrain_editor()
 	_build_package_dialogs()
@@ -884,6 +890,14 @@ func _build_sequence_editor() -> void:
 	_update_sequence_signature("event")
 
 
+func _build_validation_results()->void:
+	validation_dialog=Window.new();validation_dialog.title="Scenario Validation";validation_dialog.size=Vector2i(680,520);validation_dialog.close_requested.connect(validation_dialog.hide);validation_dialog.visible=false;add_child(validation_dialog)
+	var form:=VBoxContainer.new();form.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT);form.offset_left=18;form.offset_top=18;form.offset_right=-18;form.offset_bottom=-18;validation_dialog.add_child(form)
+	validation_summary=Label.new();validation_summary.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;form.add_child(validation_summary)
+	validation_list=ItemList.new();validation_list.size_flags_vertical=Control.SIZE_EXPAND_FILL;validation_list.item_activated.connect(func(_index):_open_selected_validation_finding());form.add_child(validation_list)
+	_add_button(form,"Open Selected Finding",_open_selected_validation_finding)
+
+
 func _build_guidance_editor() -> void:
 	guidance_dialog=Window.new();guidance_dialog.title="Scenario Editor — Objectives & Guidance";guidance_dialog.size=Vector2i(760,680);guidance_dialog.close_requested.connect(guidance_dialog.hide);guidance_dialog.visible=false;add_child(guidance_dialog)
 	var scroll:=ScrollContainer.new();scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT);scroll.offset_left=18;scroll.offset_top=18;scroll.offset_right=-18;scroll.offset_bottom=-18;guidance_dialog.add_child(scroll)
@@ -924,19 +938,26 @@ func _build_cinematic_editor()->void:
 	cinematic_dialog=Window.new();cinematic_dialog.title="Scenario Editor — Cinematics";cinematic_dialog.size=Vector2i(760,680);cinematic_dialog.close_requested.connect(cinematic_dialog.hide);cinematic_dialog.visible=false;add_child(cinematic_dialog)
 	var scroll:=ScrollContainer.new();scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT);scroll.offset_left=18;scroll.offset_top=18;scroll.offset_right=-18;scroll.offset_bottom=-18;cinematic_dialog.add_child(scroll)
 	var form:=VBoxContainer.new();form.size_flags_horizontal=Control.SIZE_EXPAND_FILL;scroll.add_child(form)
-	var help:=Label.new();help.text="Dialogue text is always the subtitle. Optional audio never replaces it. Select any timeline row to scrub the deterministic preview; Play starts at row 1 and Skip jumps to the end when allowed.";help.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;form.add_child(help)
+	var help:=Label.new();help.text="Choose an opening or ending, then add or update its ordered shots. Dialogue always includes a subtitle; audio is optional. Select a timeline row to edit it or preview that beat.";help.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;form.add_child(help)
 	cinematic_list=ItemList.new();cinematic_list.custom_minimum_size.y=110;cinematic_list.item_selected.connect(_load_cinematic);form.add_child(cinematic_list)
-	for field in ["cinematic_id","skippable","letterbox","control_lock","a","b","c","text","number","number_2"]:cinematic_fields[field]=_add_field(form,field.replace("_"," ").capitalize())
-	cinematic_fields.skippable.text="true";cinematic_fields.letterbox.text="true";cinematic_fields.control_lock.text="true";cinematic_fields.number.text="3";cinematic_fields.number_2.text="0.5"
+	var id_label:=Label.new();id_label.text="Cinematic stable ID";form.add_child(id_label);cinematic_fields.cinematic_id=_add_field(form,"opening")
+	var flags:=HBoxContainer.new();form.add_child(flags)
+	for field in ["skippable","letterbox","control_lock"]:
+		var toggle:=CheckBox.new();toggle.text={"skippable":"Escape can skip","letterbox":"Show letterbox","control_lock":"Lock gameplay controls"}[field];toggle.button_pressed=true;flags.add_child(toggle);cinematic_fields[field]=toggle
 	_add_button(form,"Add Cinematic",_add_cinematic);_add_button(form,"Update Playback Flags",_update_cinematic);_add_button(form,"Delete Cinematic",_delete_cinematic)
+	var step_heading:=Label.new();step_heading.text="Timeline step type";form.add_child(step_heading)
 	cinematic_step_type=OptionButton.new()
 	for type in ScenarioDocumentScript.CINEMATIC_STEPS:
 		cinematic_step_type.add_item(type.replace("_"," ").capitalize());cinematic_step_type.set_item_metadata(cinematic_step_type.item_count-1,type)
 	form.add_child(cinematic_step_type)
-	cinematic_step_type.select(0)
-	var signature:=Label.new();signature.text="Dialogue: A=speaker, B=optional audio, Text=subtitle, Number=duration | Camera: A=region, Number=duration, Number 2=blend | Unit cue: A=group, B=cue, C=target region | Audio: A=audio, B=mix/replace/stop, Number=volume";signature.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;form.add_child(signature)
+	cinematic_step_type.item_selected.connect(func(_index):_refresh_cinematic_step_fields());cinematic_step_type.select(0)
+	for field in ["a","b","c","text","number","number_2"]:
+		var row:=HBoxContainer.new();row.size_flags_horizontal=Control.SIZE_EXPAND_FILL;form.add_child(row);cinematic_field_rows[field]=row
+		var label:=Label.new();label.custom_minimum_size.x=160;row.add_child(label);cinematic_field_labels[field]=label
+		var input:=LineEdit.new();input.size_flags_horizontal=Control.SIZE_EXPAND_FILL;row.add_child(input);cinematic_fields[field]=input
+	cinematic_fields.number.text="3";cinematic_fields.number_2.text="0.5";_refresh_cinematic_step_fields()
 	cinematic_step_list=ItemList.new();cinematic_step_list.custom_minimum_size.y=150;cinematic_step_list.item_selected.connect(_scrub_cinematic);form.add_child(cinematic_step_list)
-	_add_button(form,"Add Timeline Step",_add_cinematic_step);_add_button(form,"Move Step Up",func():_move_cinematic_step(-1));_add_button(form,"Move Step Down",func():_move_cinematic_step(1));_add_button(form,"Delete Step",_delete_cinematic_step)
+	_add_button(form,"Add Timeline Step",_add_cinematic_step);_add_button(form,"Update Selected Step",_update_cinematic_step);_add_button(form,"Move Step Up",func():_move_cinematic_step(-1));_add_button(form,"Move Step Down",func():_move_cinematic_step(1));_add_button(form,"Delete Step",_delete_cinematic_step)
 	var playback:=HBoxContainer.new();form.add_child(playback);_add_button(playback,"Play Preview",_play_cinematic_preview);_add_button(playback,"Skip Preview",_skip_cinematic_preview);_add_button(playback,"Validate",_validate_cinematic_preview)
 	cinematic_preview=RichTextLabel.new();cinematic_preview.fit_content=true;cinematic_preview.custom_minimum_size.y=110;form.add_child(cinematic_preview)
 
@@ -947,31 +968,51 @@ func show_cinematic_editor()->void:
 
 
 func _refresh_cinematics()->void:
-	cinematic_list.clear();cinematic_step_list.clear()
-	for cinematic in package.scenario.data.cinematics:cinematic_list.add_item("%s  [%s]"%[cinematic.cinematic_id,"skippable" if cinematic.skippable else "locked"]);cinematic_list.set_item_metadata(cinematic_list.item_count-1,cinematic.cinematic_id)
+	cinematic_list.clear();cinematic_step_list.clear();var seen_ids:={}
+	for index in package.scenario.data.cinematics.size():
+		var cinematic=package.scenario.data.cinematics[index]
+		var stable_id:=str(cinematic.get("cinematic_id","")) if cinematic is Dictionary else "";var valid_id:bool=package.scenario._valid_id(stable_id);var invalid:bool=not cinematic is Dictionary or not valid_id or seen_ids.has(stable_id) or not cinematic.get("steps") is Array or not cinematic.get("skippable") is bool or cinematic.has("letterbox") and not cinematic.get("letterbox") is bool or cinematic.has("control_lock") and not cinematic.get("control_lock") is bool
+		if valid_id:seen_ids[stable_id]=true
+		var metadata:={"entity_index":index,"stable_id":stable_id,"invalid":invalid}
+		if invalid:cinematic_list.add_item("Invalid cinematic%s (entry %d) — select Delete Cinematic to remove"%[" '%s'"%stable_id if not stable_id.is_empty() else "",index+1]);cinematic_list.set_item_metadata(cinematic_list.item_count-1,metadata);continue
+		cinematic_list.add_item("%s  [%s]"%[stable_id,"skippable" if cinematic.get("skippable",false) else "locked"]);cinematic_list.set_item_metadata(cinematic_list.item_count-1,metadata)
 
 
 func _selected_cinematic_id()->String:
-	var selected:=cinematic_list.get_selected_items();return "" if selected.is_empty() else cinematic_list.get_item_metadata(selected[0])
+	var selected:=cinematic_list.get_selected_items()
+	if selected.is_empty():return ""
+	var metadata=cinematic_list.get_item_metadata(selected[0]);return str(metadata.get("stable_id","")) if metadata is Dictionary else str(metadata)
 
 
 func _load_cinematic(index:int)->void:
-	var cinematic:Dictionary=package.scenario._find(package.scenario.data.cinematics,"cinematic_id",cinematic_list.get_item_metadata(index));cinematic_fields.cinematic_id.text=cinematic.cinematic_id;cinematic_fields.cinematic_id.editable=false;cinematic_fields.skippable.text=str(cinematic.skippable);cinematic_fields.letterbox.text=str(cinematic.get("letterbox",false));cinematic_fields.control_lock.text=str(cinematic.get("control_lock",false));cinematic_step_list.clear()
-	for step in cinematic.steps:cinematic_step_list.add_item(package.scenario._canonical_json(step))
+	var metadata=cinematic_list.get_item_metadata(index);cinematic_step_list.clear()
+	if metadata is Dictionary and metadata.get("invalid",false):
+		cinematic_fields.cinematic_id.text=str(metadata.get("stable_id",""));cinematic_fields.cinematic_id.editable=false;cinematic_preview.text="This cinematic entry is malformed. Select Delete Cinematic to remove it, then recreate it.";status("Invalid cinematic entry selected — Delete Cinematic is available");return
+	var cinematic:Dictionary=package.scenario._find(package.scenario.data.cinematics,"cinematic_id",str(metadata.get("stable_id","")) if metadata is Dictionary else str(metadata))
+	if cinematic.is_empty():status("Cinematic entry could not be loaded");return
+	cinematic_fields.cinematic_id.text=cinematic.get("cinematic_id","");cinematic_fields.cinematic_id.editable=false;cinematic_fields.skippable.button_pressed=cinematic.get("skippable",false);cinematic_fields.letterbox.button_pressed=cinematic.get("letterbox",false);cinematic_fields.control_lock.button_pressed=cinematic.get("control_lock",false)
+	for step in cinematic.get("steps",[]):
+		var summary:=_cinematic_step_summary(step);cinematic_step_list.add_item(summary);cinematic_step_list.set_item_tooltip(cinematic_step_list.item_count-1,summary)
 
 
 func _add_cinematic()->void:
-	if package.scenario.add_cinematic(cinematic_fields.cinematic_id.text,cinematic_fields.skippable.text.to_lower()=="true",cinematic_fields.letterbox.text.to_lower()=="true",cinematic_fields.control_lock.text.to_lower()=="true",package.world):cinematic_fields.cinematic_id.editable=true;_refresh_cinematics();refresh_all();status("Cinematic added")
+	if package.scenario.add_cinematic(cinematic_fields.cinematic_id.text,cinematic_fields.skippable.button_pressed,cinematic_fields.letterbox.button_pressed,cinematic_fields.control_lock.button_pressed,package.world):cinematic_fields.cinematic_id.editable=true;_refresh_cinematics();refresh_all();status("Cinematic added")
 	else:package.errors=package.scenario.errors;show_errors()
 
 
 func _update_cinematic()->void:
 	var id:=_selected_cinematic_id();if id.is_empty():status("Select a cinematic");return
-	if package.scenario.update_cinematic(id,{"skippable":cinematic_fields.skippable.text.to_lower()=="true","letterbox":cinematic_fields.letterbox.text.to_lower()=="true","control_lock":cinematic_fields.control_lock.text.to_lower()=="true"},package.world):_refresh_cinematics();refresh_all();status("Cinematic flags updated")
+	if package.scenario.update_cinematic(id,{"skippable":cinematic_fields.skippable.button_pressed,"letterbox":cinematic_fields.letterbox.button_pressed,"control_lock":cinematic_fields.control_lock.button_pressed},package.world):_refresh_cinematics();refresh_all();status("Cinematic flags updated")
 	else:package.errors=package.scenario.errors;show_errors()
 
 
 func _delete_cinematic()->void:
+	var selected:=cinematic_list.get_selected_items();if selected.is_empty():status("Select a cinematic");return
+	var metadata=cinematic_list.get_item_metadata(selected[0])
+	if metadata is Dictionary and metadata.get("invalid",false):
+		if package.scenario.remove_invalid_collection_entry("cinematics",int(metadata.entity_index),package.world):_refresh_cinematics();refresh_all();status("Invalid cinematic entry removed")
+		else:package.errors=package.scenario.errors;show_errors()
+		return
 	var id:=_selected_cinematic_id();if id.is_empty():status("Select a cinematic");return
 	if package.scenario.delete_cinematic(id,package.world):cinematic_fields.cinematic_id.editable=true;_refresh_cinematics();refresh_all();status("Cinematic deleted")
 	else:package.errors=package.scenario.errors;show_errors()
@@ -990,15 +1031,58 @@ func _cinematic_step_from_form()->Dictionary:
 	return {}
 
 
+func _refresh_cinematic_step_fields()->void:
+	var type:String=cinematic_step_type.get_item_metadata(cinematic_step_type.selected)
+	var specs:Dictionary={
+		"dialogue":{"a":"Speaker instance ID","b":"Optional audio ID","text":"Subtitle","number":"Duration (seconds)"},
+		"camera":{"a":"Camera region ID","number":"Duration (seconds)","number_2":"Blend time (seconds)"},
+		"unit_cue":{"a":"Unit group ID","b":"Cue (face, move, animate, show, hide, transform)","c":"Target region ID"},
+		"audio":{"a":"Audio ID","b":"Playback policy (mix, replace, stop)","number":"Volume"}
+	}[type]
+	for key in cinematic_field_rows:
+		cinematic_field_rows[key].visible=specs.has(key)
+		if specs.has(key):cinematic_field_labels[key].text=specs[key];cinematic_fields[key].placeholder_text=specs[key]
+
+
+func _cinematic_step_summary(step)->String:
+	if not step is Dictionary:return "Invalid timeline step — delete and recreate this step"
+	match step.get("type",""):
+		"dialogue":return "Dialogue — %s: %s (%ss)"%[step.get("speaker_instance_id","missing speaker"),step.get("text",""),step.get("duration_s",0)]
+		"camera":return "Camera — %s (%ss, %ss blend)"%[step.get("region_id","missing region"),step.get("duration_s",0),step.get("blend_s",0)]
+		"unit_cue":return "Unit cue — %s: %s → %s"%[step.get("group_id","missing group"),step.get("cue","missing cue"),step.get("target_region_id","missing region")]
+		"audio":return "Audio — %s (%s, volume %s)"%[step.get("audio_id","missing audio"),step.get("policy","missing policy"),step.get("volume",0)]
+	return "Unsupported timeline step"
+
+
+func _load_cinematic_step_form(step:Dictionary)->void:
+	for index in cinematic_step_type.item_count:
+		if cinematic_step_type.get_item_metadata(index)==step.get("type"):
+			cinematic_step_type.select(index);break
+	for key in ["a","b","c","text","number","number_2"]:cinematic_fields[key].text=""
+	match step.get("type",""):
+		"dialogue":cinematic_fields.a.text=step.get("speaker_instance_id","");cinematic_fields.b.text=step.get("audio_id","");cinematic_fields.text.text=step.get("text","");cinematic_fields.number.text=str(step.get("duration_s",3))
+		"camera":cinematic_fields.a.text=step.get("region_id","");cinematic_fields.number.text=str(step.get("duration_s",2));cinematic_fields.number_2.text=str(step.get("blend_s",0.5))
+		"unit_cue":cinematic_fields.a.text=step.get("group_id","");cinematic_fields.b.text=step.get("cue","");cinematic_fields.c.text=step.get("target_region_id","")
+		"audio":cinematic_fields.a.text=step.get("audio_id","");cinematic_fields.b.text=step.get("policy","");cinematic_fields.number.text=str(step.get("volume",1))
+	_refresh_cinematic_step_fields()
+
+
 func _add_cinematic_step()->void:
 	var id:=_selected_cinematic_id();if id.is_empty():status("Select a cinematic");return
 	if package.scenario.add_cinematic_step(id,_cinematic_step_from_form(),package.world):_refresh_cinematics();_reselect_cinematic(id);refresh_all();status("Timeline step added")
 	else:package.errors=package.scenario.errors;show_errors()
 
 
+func _update_cinematic_step()->void:
+	var id:=_selected_cinematic_id();var selected:=cinematic_step_list.get_selected_items();if id.is_empty() or selected.is_empty():status("Select a timeline step");return
+	if package.scenario.update_cinematic_step(id,selected[0],_cinematic_step_from_form(),package.world):_refresh_cinematics();_reselect_cinematic(id);cinematic_step_list.select(selected[0]);_scrub_cinematic(selected[0]);refresh_all();status("Timeline step updated")
+	else:package.errors=package.scenario.errors;show_errors()
+
+
 func _reselect_cinematic(id:String)->void:
 	for index in cinematic_list.item_count:
-		if cinematic_list.get_item_metadata(index)==id:cinematic_list.select(index);_load_cinematic(index);return
+		var metadata=cinematic_list.get_item_metadata(index);var item_id:=str(metadata.get("stable_id","")) if metadata is Dictionary else str(metadata)
+		if item_id==id:cinematic_list.deselect_all();cinematic_list.select(index);_load_cinematic(index);return
 
 
 func _move_cinematic_step(direction:int)->void:
@@ -1014,7 +1098,11 @@ func _delete_cinematic_step()->void:
 
 
 func _scrub_cinematic(index:int)->void:
-	var cinematic:Dictionary=package.scenario._find(package.scenario.data.cinematics,"cinematic_id",_selected_cinematic_id());var step:Dictionary=cinematic.steps[index];cinematic_preview.text="STEP %d/%d — %s\n%s"%[index+1,cinematic.steps.size(),step.type.to_upper(),step.get("text",package.scenario._canonical_json(step))];status("Cinematic preview scrubbed to step %d"%(index+1))
+	var cinematic:Dictionary=package.scenario._find(package.scenario.data.cinematics,"cinematic_id",_selected_cinematic_id());var steps=cinematic.get("steps",[])
+	if not steps is Array or index<0 or index>=steps.size():status("Timeline step could not be loaded");return
+	var step=steps[index]
+	if not step is Dictionary:cinematic_preview.text="STEP %d/%d — INVALID\nSelect Delete Step to remove this malformed step, then recreate it."%[index+1,steps.size()];status("Invalid timeline step selected — Delete Step is available");return
+	_load_cinematic_step_form(step);cinematic_preview.text="STEP %d/%d — %s\n%s"%[index+1,steps.size(),str(step.get("type","unsupported")).to_upper(),_cinematic_step_summary(step)];status("Loaded timeline step %d for editing"%(index+1))
 
 
 func _play_cinematic_preview()->void:
@@ -1231,23 +1319,40 @@ func show_sequence_editor() -> void:
 func _refresh_sequence_list() -> void:
 	sequence_list.clear()
 	if package.scenario==null:return
-	var sequences:Array=package.scenario.data.sequences.duplicate(); sequences.sort_custom(func(a,b):return a.sequence_id<b.sequence_id)
-	for sequence in sequences:
-		sequence_list.add_item("%s  [%s%s]"%[sequence.sequence_id,"on" if sequence.enabled else "off",", once" if sequence.one_shot else ""]);sequence_list.set_item_metadata(sequence_list.item_count-1,sequence.sequence_id)
+	var sequences:Array=[];var seen_ids:={}
+	for index in package.scenario.data.sequences.size():
+		var value=package.scenario.data.sequences[index];var stable_id:=str(value.get("sequence_id","")) if value is Dictionary else "";var valid_id:bool=package.scenario._valid_id(stable_id);var invalid:bool=not value is Dictionary or not valid_id or seen_ids.has(stable_id) or not value.get("event") is Dictionary or not value.get("conditions") is Array or not value.get("actions") is Array or not value.get("enabled") is bool or not value.get("one_shot") is bool
+		if valid_id:seen_ids[stable_id]=true
+		sequences.append({"index":index,"value":value,"stable_id":stable_id,"invalid":invalid})
+	sequences.sort_custom(func(a,b):
+		if a.value is Dictionary and not b.value is Dictionary:return true
+		if not a.value is Dictionary:return false
+		return str(a.value.get("sequence_id",""))<str(b.value.get("sequence_id","")))
+	for entry in sequences:
+		var sequence=entry.value
+		var metadata:={"entity_index":entry.index,"stable_id":entry.stable_id,"invalid":entry.invalid}
+		if entry.invalid:sequence_list.add_item("Invalid sequence%s (entry %d) — select Delete Selected Sequence to remove"%[" '%s'"%entry.stable_id if not entry.stable_id.is_empty() else "",entry.index+1]);sequence_list.set_item_metadata(sequence_list.item_count-1,metadata);continue
+		sequence_list.add_item("%s  [%s%s]"%[entry.stable_id,"on" if sequence.get("enabled",false) else "off",", once" if sequence.get("one_shot",false) else ""]);sequence_list.set_item_metadata(sequence_list.item_count-1,metadata)
 
 
 func _selected_sequence_id()->String:
-	var selected:=sequence_list.get_selected_items();return "" if selected.is_empty() else sequence_list.get_item_metadata(selected[0])
+	var selected:=sequence_list.get_selected_items()
+	if selected.is_empty():return ""
+	var metadata=sequence_list.get_item_metadata(selected[0]);return str(metadata.get("stable_id","")) if metadata is Dictionary else str(metadata)
 
 
 func _load_sequence(index:int)->void:
-	var id:String=sequence_list.get_item_metadata(index);var sequence:Dictionary=package.scenario._find(package.scenario.data.sequences,"sequence_id",id)
-	sequence_fields.sequence_id.text=id;sequence_fields.sequence_id.editable=false;sequence_fields.enabled.button_pressed=sequence.enabled;sequence_fields.one_shot.button_pressed=sequence.one_shot
+	var metadata=sequence_list.get_item_metadata(index);sequence_conditions.clear();sequence_actions.clear()
+	if metadata is Dictionary and metadata.get("invalid",false):
+		sequence_fields.sequence_id.text=str(metadata.get("stable_id",""));sequence_fields.sequence_id.editable=false;status("Invalid sequence entry selected — Delete Selected Sequence is available");return
+	var id:String=str(metadata.get("stable_id","")) if metadata is Dictionary else str(metadata);var sequence:Dictionary=package.scenario._find(package.scenario.data.sequences,"sequence_id",id)
+	if sequence.is_empty():status("Sequence entry could not be loaded");return
+	sequence_fields.sequence_id.text=id;sequence_fields.sequence_id.editable=false;sequence_fields.enabled.button_pressed=sequence.get("enabled",false);sequence_fields.one_shot.button_pressed=sequence.get("one_shot",false)
 	for item in sequence_event_type.item_count:
-		if sequence_event_type.get_item_metadata(item)==sequence.event.type:sequence_event_type.select(item)
-	_load_typed_references(sequence.event);sequence_conditions.clear();sequence_actions.clear()
-	for condition in sequence.conditions:sequence_conditions.add_item(_typed_summary(condition))
-	for action in sequence.actions:sequence_actions.add_item(_typed_summary(action))
+		if sequence_event_type.get_item_metadata(item)==sequence.get("event",{}).get("type",""):sequence_event_type.select(item)
+	_load_typed_references(sequence.get("event",{}))
+	for condition in sequence.get("conditions",[]):sequence_conditions.add_item(_typed_summary(condition))
+	for action in sequence.get("actions",[]):sequence_actions.add_item(_typed_summary(action))
 	_update_sequence_signature("event");status("Selected sequence '%s'"%id)
 
 
@@ -1273,6 +1378,12 @@ func _duplicate_sequence()->void:
 
 
 func _delete_sequence()->void:
+	var selected:=sequence_list.get_selected_items();if selected.is_empty():status("Select a sequence");return
+	var metadata=sequence_list.get_item_metadata(selected[0])
+	if metadata is Dictionary and metadata.get("invalid",false):
+		if package.scenario.remove_invalid_collection_entry("sequences",int(metadata.entity_index),package.world):_refresh_sequence_list();refresh_all();status("Invalid sequence entry removed")
+		else:package.errors=package.scenario.errors;show_errors()
+		return
 	var id:String=_selected_sequence_id();if id.is_empty():status("Select a sequence");return
 	if package.scenario.delete_sequence(id,package.world):_refresh_sequence_list();refresh_all();status("Deleted sequence '%s'"%id)
 	else:package.errors=package.scenario.errors;show_errors()
@@ -1311,7 +1422,8 @@ func _move_sequence_action(direction:int)->void:
 func _reload_sequence_by_id(id:String)->void:
 	_refresh_sequence_list()
 	for index in sequence_list.item_count:
-		if sequence_list.get_item_metadata(index)==id:sequence_list.select(index);_load_sequence(index);return
+		var metadata=sequence_list.get_item_metadata(index);var item_id:=str(metadata.get("stable_id","")) if metadata is Dictionary else str(metadata)
+		if item_id==id:sequence_list.deselect_all();sequence_list.select(index);_load_sequence(index);return
 
 
 func _event_from_form()->Dictionary:
@@ -1359,7 +1471,8 @@ func _load_typed_references(value:Dictionary)->void:
 	if value.has("duration_s"):sequence_fields.number.text=str(value.duration_s)
 
 
-func _typed_summary(value:Dictionary)->String:
+func _typed_summary(value)->String:
+	if not value is Dictionary:return "Invalid step — delete and recreate this step"
 	var details:Array[String]=[]
 	for key in value:
 		if key!="type":details.append("%s=%s"%[key,value[key]])
@@ -1373,8 +1486,109 @@ func _update_sequence_signature(kind:String)->void:
 
 
 func _validate_sequence_flow()->void:
-	var failures:Array[String]=package.scenario.validate(package.scenario.data,package.world);var notices:Array[String]=package.scenario.flow_diagnostics()
-	status("Sequence flow valid" if failures.is_empty() and notices.is_empty() else " | ".join(failures+notices))
+	var failures:Array[String]=package.scenario.validate(package.scenario.data,package.world);var notices:Array[String]=package.scenario.flow_diagnostics();validation_list.clear()
+	if failures.is_empty() and notices.is_empty():
+		validation_summary.text="Ready for Test World — schema, references, and flow checks passed.";validation_list.add_item("PASS — No scenario errors or notices")
+	else:
+		validation_summary.text="%d error(s), %d notice(s). Select a finding to see where it belongs, then open that workspace."%[failures.size(),notices.size()]
+		for message in failures:_add_validation_finding("ERROR",message)
+		for message in notices:_add_validation_finding("NOTICE",message)
+	validation_dialog.popup_centered();status("Scenario validation passed" if failures.is_empty() and notices.is_empty() else "Scenario validation found items to review")
+
+
+func _add_validation_finding(severity:String,message:String)->void:
+	var workspace:=_validation_workspace(message);var finding:=_validation_route(message,workspace);finding.severity=severity;finding.message=message
+	var summary:="%s — %s — %s"%[severity,workspace,_validation_human_message(message,finding)];validation_list.add_item(summary);validation_list.set_item_tooltip(validation_list.item_count-1,"%s\nTechnical detail: %s"%[summary,message]);validation_list.set_item_metadata(validation_list.item_count-1,finding)
+
+
+func _validation_workspace(message:String)->String:
+	var lower:=message.to_lower()
+	if "scenario.json.sequences" in lower:return "Sequences"
+	if "scenario.json.cinematics" in lower:return "Cinematics"
+	if "cinematic" in lower:return "Cinematics"
+	if "sequence" in lower:return "Sequences"
+	if "tutorial" in lower or "objective" in lower:return "Objectives & Guidance"
+	if "encounter" in lower or "unit_groups" in lower or "group" in lower:return "Groups & Encounters"
+	return "Scenario & Regions"
+
+
+func _validation_collection_index(message:String,collection:String)->int:
+	var regex:=RegEx.new();regex.compile("\\.%s\\[(\\d+)\\]"%collection);var result:=regex.search(message)
+	return -1 if result==null else int(result.get_string(1))
+
+
+func _validation_route(message:String,workspace:String)->Dictionary:
+	var route:={"workspace":workspace}
+	if workspace=="Cinematics":
+		var index:=_validation_collection_index(message,"cinematics")
+		if index>=0:
+			route.entity_index=index
+			if index<package.scenario.data.cinematics.size():
+				var cinematic=package.scenario.data.cinematics[index]
+				if cinematic is Dictionary and cinematic.has("cinematic_id"):route.cinematic_id=cinematic.cinematic_id
+		var step_index:=_validation_collection_index(message,"steps");if step_index>=0:route.step_index=step_index
+	if workspace=="Sequences":
+		var index:=_validation_collection_index(message,"sequences")
+		if index>=0:
+			route.entity_index=index
+			if index<package.scenario.data.sequences.size():
+				var sequence=package.scenario.data.sequences[index]
+				if sequence is Dictionary and sequence.has("sequence_id"):route.sequence_id=sequence.sequence_id
+		if not route.has("sequence_id"):
+			var named:=RegEx.new();named.compile("[Ss]equence '([^']+)'");var named_match:=named.search(message)
+			if named_match!=null:route.sequence_id=named_match.get_string(1)
+		if not route.has("sequence_id"):
+			var cycle:=RegEx.new();cycle.compile("cycle at '([^']+)'");var cycle_match:=cycle.search(message)
+			if cycle_match!=null:route.sequence_id=cycle_match.get_string(1)
+		for collection in ["conditions","actions"]:
+			var step_index:=_validation_collection_index(message,collection)
+			if step_index>=0:route.sequence_collection=collection;route.step_index=step_index
+	return route
+
+
+func _validation_human_message(message:String,finding:Dictionary)->String:
+	var location:=""
+	if finding.has("cinematic_id"):location="Cinematic '%s'"%finding.cinematic_id
+	if finding.has("sequence_id"):location="Sequence '%s'"%finding.sequence_id
+	if location.is_empty() and finding.has("entity_index"):location="%s entry %d"%["Cinematic" if finding.workspace=="Cinematics" else "Sequence",int(finding.entity_index)+1]
+	if finding.has("step_index"):location+=" — %s %d"%["timeline step" if finding.workspace=="Cinematics" else str(finding.get("sequence_collection","step")).trim_suffix("s"),int(finding.step_index)+1]
+	var marker:=message.find(" has ");var detail:=message.substr(marker+5) if marker>=0 else message
+	if not location.is_empty() and message.begins_with(location):return message
+	return detail if location.is_empty() else "%s: %s"%[location,detail]
+
+
+func _open_selected_validation_finding()->void:
+	var selected:=validation_list.get_selected_items();if selected.is_empty():status("Select a validation finding");return
+	var finding=validation_list.get_item_metadata(selected[0]);if not finding is Dictionary:return
+	validation_dialog.hide();var message:String=finding.message
+	match finding.workspace:
+		"Cinematics":
+			show_cinematic_editor()
+			var row:=_select_validation_entity(cinematic_list,int(finding.get("entity_index",-1))) if finding.has("entity_index") else -1
+			if row>=0:_load_cinematic(row)
+			elif finding.has("cinematic_id"):_reselect_cinematic(finding.cinematic_id)
+			var step_index:=int(finding.get("step_index",-1));var selected_cinematic:=cinematic_list.get_selected_items()
+			if step_index>=0 and not selected_cinematic.is_empty() and not cinematic_list.get_item_metadata(selected_cinematic[0]).get("invalid",false) and step_index<cinematic_step_list.item_count:cinematic_step_list.select(step_index);_scrub_cinematic(step_index)
+		"Sequences":
+			show_sequence_editor()
+			var row:=_select_validation_entity(sequence_list,int(finding.get("entity_index",-1))) if finding.has("entity_index") else -1
+			if row>=0:_load_sequence(row)
+			elif finding.has("sequence_id"):_reload_sequence_by_id(finding.sequence_id)
+			var step_index:=int(finding.get("step_index",-1));var collection:=str(finding.get("sequence_collection",""));var selected_sequence:=sequence_list.get_selected_items()
+			if not selected_sequence.is_empty() and not sequence_list.get_item_metadata(selected_sequence[0]).get("invalid",false):
+				if step_index>=0 and collection=="conditions" and step_index<sequence_conditions.item_count:sequence_conditions.select(step_index)
+				if step_index>=0 and collection=="actions" and step_index<sequence_actions.item_count:sequence_actions.select(step_index)
+		"Objectives & Guidance":show_guidance_editor()
+		"Groups & Encounters":show_encounter_editor()
+		_:show_scenario_editor()
+	status("Opened %s for: %s"%[finding.workspace,message])
+
+
+func _select_validation_entity(list:ItemList,entity_index:int)->int:
+	for item_index in list.item_count:
+		var metadata=list.get_item_metadata(item_index)
+		if metadata is Dictionary and metadata.get("entity_index",-1)==entity_index:list.deselect_all();list.select(item_index);return item_index
+	return -1
 
 
 func show_scenario_editor() -> void:

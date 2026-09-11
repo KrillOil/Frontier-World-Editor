@@ -14,8 +14,10 @@ func _init()->void:
 	_check(scenario.add_cinematic_step("opening",{"type":"unit_cue","group_id":"guides","cue":"move","target_region_id":"walk_target"},world),"Unit movement cue authors")
 	_check(scenario.add_cinematic_step("opening",{"type":"audio","audio_id":"opening_theme","volume":0.8,"policy":"replace"},world),"Music interruption policy authors")
 	_check(scenario.move_cinematic_step("opening",3,-1,world) and scenario.data.cinematics[0].steps[2].type=="audio","Cinematic timeline can be reordered and scrubbed deterministically")
+	_check(scenario.update_cinematic_step("opening",0,{"type":"dialogue","speaker_instance_id":"guide_001","text":"The ridge is just ahead.","duration_s":2.0},world) and scenario.data.cinematics[0].steps[0].text=="The ridge is just ahead.","An existing cinematic step updates in place without rebuilding the timeline")
 	_check(scenario.add_sequence("begin",{"type":"scenario_start"},world) and scenario.add_sequence_step("begin","actions",{"type":"play_cinematic","cinematic_id":"opening"},world),"Opening scene wires to typed sequence action")
 	_check(not scenario.delete_cinematic("opening",world) and "begin" in scenario.errors[0],"Referenced cinematic deletion is blocked")
+	var save_path:="user://qa_i03_cinematic.json";var file:=FileAccess.open(save_path,FileAccess.WRITE);file.store_string(JSON.stringify(scenario.data));file.close();var reopened=ScenarioScript.new();_check(reopened.load_from_file(save_path,world) and reopened.data.cinematics[0].steps[0].text=="The ridge is just ahead.","Updated timeline meaning survives save and reopen")
 	if failures.is_empty():print("PASS: visibility and cinematic timeline authoring");quit(0);return
 	for failure in failures:push_error(failure)
 	quit(1)

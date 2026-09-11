@@ -21,6 +21,9 @@ func _init()->void:
 	_check(scenario.flow_diagnostics().is_empty(),"Enabled reachable flow has no diagnostics")
 	_check(scenario.update_sequence("begin_copy",{"enabled":false},world) and scenario.flow_diagnostics().any(func(message):return "disabled" in message),"Disabled flow is visible to the Creator")
 	_check(scenario.undo() and scenario._find(scenario.data.sequences,"sequence_id","begin_copy").enabled,"Sequence edits participate in undo")
+	var broken:Dictionary=scenario._find(scenario.data.sequences,"sequence_id","begin_copy");broken.event={"type":"sequence_completed","sequence_id":"missing_dependency"}
+	_check(scenario.validate(scenario.data,world).any(func(message):return "unresolved sequence" in message),"Unresolved completion dependencies become validation findings")
+	_check(scenario.flow_diagnostics().all(func(message):return "waits on a disabled sequence" not in message),"Flow diagnostics safely ignore a missing dependency already reported by validation")
 	if failures.is_empty():print("PASS: typed scenario sequence lifecycle and flow validation");quit(0);return
 	for failure in failures:push_error(failure)
 	quit(1)
