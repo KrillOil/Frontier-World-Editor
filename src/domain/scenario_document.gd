@@ -654,7 +654,7 @@ func _ids(values: Array, field: String, collection: String, failures: Array[Stri
 	for index in values.size():
 		if not values[index] is Dictionary: failures.append("scenario.json.%s[%d] must be an object" % [collection,index]); continue
 		var id = values[index].get(field)
-		if not _valid_id(id) or result.has(id): failures.append("scenario.json.%s has invalid or duplicate %s '%s'" % [collection, field, id])
+		if not _valid_id(id) or result.has(id): failures.append("scenario.json.%s[%d] has invalid or duplicate %s '%s'" % [collection,index,field,id])
 		else: result[id] = true
 	return result
 
