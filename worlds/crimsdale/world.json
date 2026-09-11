@@ -17,13 +17,13 @@
     },
     {
       "instance_id": "crimsdale_guard_001",
-      "definition_id": "unit_crimsdale_guard",
+      "definition_id": "unit_crimsdale_companion",
       "position": [-4.0, 0.0, 4.0],
       "rotation_y": 0.0
     },
     {
       "instance_id": "crimsdale_guard_002",
-      "definition_id": "unit_crimsdale_guard",
+      "definition_id": "unit_crimsdale_companion",
       "position": [-2.0, 0.0, 5.0],
       "rotation_y": 0.0
     },
@@ -32,13 +32,21 @@
       "definition_id": "unit_crimsdale_raider",
       "position": [5.0, 0.0, -3.0],
       "rotation_y": 180.0
-    }
+    },
+    {"instance_id":"crimsdale_guard_003","definition_id":"unit_crimsdale_companion","position":[-1.0,0.0,6.0],"rotation_y":0.0},
+    {"instance_id":"crimsdale_warden_001","definition_id":"unit_crimsdale_warden","position":[-18.0,0.0,18.0],"rotation_y":135.0},
+    {"instance_id":"crimsdale_raider_002","definition_id":"unit_crimsdale_raider","position":[10.0,0.0,6.0],"rotation_y":180.0},
+    {"instance_id":"crimsdale_raider_003","definition_id":"unit_crimsdale_raider","position":[12.0,0.0,8.0],"rotation_y":180.0},
+    {"instance_id":"crimsdale_raider_004","definition_id":"unit_crimsdale_raider","position":[24.0,0.0,13.0],"rotation_y":225.0},
+    {"instance_id":"crimsdale_raider_005","definition_id":"unit_crimsdale_raider","position":[27.0,0.0,15.0],"rotation_y":225.0},
+    {"instance_id":"crimsdale_raider_006","definition_id":"unit_crimsdale_raider","position":[34.0,0.0,25.0],"rotation_y":225.0},
+    {"instance_id":"river_charm_001","definition_id":"item_river_charm","position":[20.0,0.0,4.0],"rotation_y":0.0}
   ],
   "spawn_points": [
     {
       "spawn_id": "player_start",
-      "position": [3.0, 0.0, 4.0],
-      "rotation_y": 180.0
+      "position": [-18.0, 0.0, 18.0],
+      "rotation_y": 135.0
     }
   ]
 }

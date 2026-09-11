@@ -1,0 +1,70 @@
+{
+  "scenario_format_version": 1,
+  "scenario_id": "crimsdale_night_watch",
+  "title": "The Lantern Road",
+  "description": "Guide Waywarden Mara along Crimsdale's lantern road, rally three trailguards, break staged raider ambushes, and reach the old meeting stone before dawn.",
+  "player_faction_id": "frontier_company",
+  "visibility": {"fog_enabled": true, "explored_radius_m": 9.0, "hidden_by_default": true},
+  "regions": [
+    {"region_id":"start_glade","display_name":"Start Glade","shape":"point","points":[[-18.0,0.0,18.0]]},
+    {"region_id":"lantern_turn","display_name":"Lantern Turn","shape":"point","points":[[-10.0,0.0,12.0]]},
+    {"region_id":"trailguard_camp","display_name":"Trailguard Camp","shape":"rectangle","points":[[-6.0,0.0,1.0],[2.0,0.0,9.0]]},
+    {"region_id":"first_ambush_bounds","display_name":"First Ambush Bounds","shape":"rectangle","points":[[5.0,0.0,1.0],[16.0,0.0,11.0]]},
+    {"region_id":"first_patrol","display_name":"First Patrol","shape":"path","points":[[8.0,0.0,4.0],[14.0,0.0,9.0]]},
+    {"region_id":"river_branch","display_name":"River Charm Branch","shape":"point","points":[[20.0,0.0,4.0]]},
+    {"region_id":"second_ambush_bounds","display_name":"River Ambush Bounds","shape":"rectangle","points":[[20.0,0.0,9.0],[31.0,0.0,19.0]]},
+    {"region_id":"meeting_stone","display_name":"Old Meeting Stone","shape":"point","points":[[38.0,0.0,30.0]]},
+    {"region_id":"final_bounds","display_name":"Meeting Stone Defenders","shape":"rectangle","points":[[31.0,0.0,21.0],[42.0,0.0,34.0]]},
+    {"region_id":"opening_camera","display_name":"Opening Camera","shape":"point","points":[[-14.0,8.0,24.0]]},
+    {"region_id":"ending_camera","display_name":"Ending Camera","shape":"point","points":[[33.0,9.0,35.0]]}
+  ],
+  "unit_groups": [
+    {"group_id":"hero","instance_ids":["crimsdale_warden_001"]},
+    {"group_id":"trailguards","instance_ids":["crimsdale_guard_001","crimsdale_guard_002","crimsdale_guard_003"]},
+    {"group_id":"first_raiders","instance_ids":["crimsdale_raider_001","crimsdale_raider_002","crimsdale_raider_003"]},
+    {"group_id":"river_raiders","instance_ids":["crimsdale_raider_004","crimsdale_raider_005"]},
+    {"group_id":"stone_raiders","instance_ids":["crimsdale_raider_006"]}
+  ],
+  "objectives": [
+    {"objective_id":"reach_meeting_stone","title":"Reach the old meeting stone","kind":"main","initial_state":"active","steps":[
+      {"step_id":"follow_lanterns","title":"Follow the lantern road","checkpoint_region_id":"lantern_turn"},
+      {"step_id":"rally_trailguards","title":"Rally the three trailguards","checkpoint_region_id":"trailguard_camp"},
+      {"step_id":"break_ambushes","title":"Break through the raider ambushes","checkpoint_region_id":"second_ambush_bounds"},
+      {"step_id":"reach_stone","title":"Reach the meeting stone","checkpoint_region_id":"meeting_stone"}
+    ]},
+    {"objective_id":"claim_river_charm","title":"Claim the River Charm","kind":"optional","initial_state":"active","steps":[{"step_id":"visit_river","title":"Search the river branch","checkpoint_region_id":"river_branch"}]}
+  ],
+  "tutorials": [
+    {"tutorial_id":"select_warden","text":"Select Mara, the Waywarden.","control":"select","indicator":"viewport","acknowledgement":"input","highlight":"crimsdale_warden_001","gates_sequence_id":"reach_lantern_turn"},
+    {"tutorial_id":"move_to_lantern","text":"Right-click the marked lantern turn to move.","control":"move","indicator":"both","acknowledgement":"input","region_id":"lantern_turn"},
+    {"tutorial_id":"camera_controls","text":"Pan and orbit the camera while following the road.","control":"camera","indicator":"viewport","acknowledgement":"input"},
+    {"tutorial_id":"group_controls","text":"The three trailguards joined you. Select the squad together.","control":"group","indicator":"viewport","acknowledgement":"input","highlight":"trailguards"},
+    {"tutorial_id":"attack_command","text":"Attack the awakened raiders or attack-move through their camp.","control":"attack","indicator":"both","acknowledgement":"input","region_id":"first_ambush_bounds"},
+    {"tutorial_id":"storm_arc","text":"Use Storm Arc when several enemies stand close together.","control":"ability","indicator":"viewport","acknowledgement":"input","highlight":"ability_warden_storm_arc"}
+  ],
+  "encounters": [
+    {"encounter_id":"first_ambush","group_id":"first_raiders","initial_state":"inactive","behavior":"sleep","leash_region_id":"first_ambush_bounds","patrol_path_region_id":"first_patrol","completion":"all_defeated","reinforcement_group_ids":[]},
+    {"encounter_id":"river_ambush","group_id":"river_raiders","initial_state":"inactive","behavior":"guard","leash_region_id":"second_ambush_bounds","completion":"all_defeated","reinforcement_group_ids":[]},
+    {"encounter_id":"stone_guard","group_id":"stone_raiders","initial_state":"inactive","behavior":"leash","leash_region_id":"final_bounds","completion":"all_defeated","reinforcement_group_ids":[]}
+  ],
+  "cinematics": [
+    {"cinematic_id":"opening","skippable":true,"letterbox":true,"control_lock":true,"steps":[
+      {"type":"camera","region_id":"opening_camera","duration_s":2.0,"blend_s":0.0},
+      {"type":"dialogue","speaker_instance_id":"crimsdale_warden_001","text":"The western lanterns have gone dark. I will find the watch before dawn.","duration_s":4.0},
+      {"type":"unit_cue","group_id":"hero","cue":"face","target_region_id":"lantern_turn"}
+    ]},
+    {"cinematic_id":"ending","skippable":true,"letterbox":true,"control_lock":true,"steps":[
+      {"type":"camera","region_id":"ending_camera","duration_s":2.0,"blend_s":0.6},
+      {"type":"dialogue","speaker_instance_id":"crimsdale_warden_001","text":"The road is open and the watch is gathered. Crimsdale will see the dawn prepared.","duration_s":4.0}
+    ]}
+  ],
+  "sequences": [
+    {"sequence_id":"mission_start","enabled":true,"one_shot":true,"event":{"type":"scenario_start"},"conditions":[],"actions":[{"type":"play_cinematic","cinematic_id":"opening"},{"type":"show_tutorial","tutorial_id":"select_warden"},{"type":"set_objective_step","objective_id":"reach_meeting_stone","step_id":"follow_lanterns","state":"active"}]},
+    {"sequence_id":"reach_lantern_turn","enabled":true,"one_shot":true,"event":{"type":"unit_enters_region","group_id":"hero","region_id":"lantern_turn"},"conditions":[],"actions":[{"type":"set_objective_step","objective_id":"reach_meeting_stone","step_id":"follow_lanterns","state":"completed"},{"type":"set_objective_step","objective_id":"reach_meeting_stone","step_id":"rally_trailguards","state":"active"},{"type":"show_tutorial","tutorial_id":"move_to_lantern"},{"type":"show_tutorial","tutorial_id":"camera_controls"}]},
+    {"sequence_id":"rally_watch","enabled":true,"one_shot":true,"event":{"type":"unit_enters_region","group_id":"hero","region_id":"trailguard_camp"},"conditions":[],"actions":[{"type":"set_ownership","group_id":"trailguards","owner_id":"player"},{"type":"set_objective_step","objective_id":"reach_meeting_stone","step_id":"rally_trailguards","state":"completed"},{"type":"set_objective_step","objective_id":"reach_meeting_stone","step_id":"break_ambushes","state":"active"},{"type":"show_tutorial","tutorial_id":"group_controls"},{"type":"show_tutorial","tutorial_id":"attack_command"},{"type":"set_encounter","group_id":"first_raiders","state":"active","behavior":"attack","leash_region_id":"first_ambush_bounds"}]},
+    {"sequence_id":"first_ambush_cleared","enabled":true,"one_shot":true,"event":{"type":"unit_died","group_id":"first_raiders"},"conditions":[{"type":"group_alive","group_id":"first_raiders","value":false}],"actions":[{"type":"set_encounter","group_id":"river_raiders","state":"active","behavior":"guard","leash_region_id":"second_ambush_bounds"},{"type":"show_tutorial","tutorial_id":"storm_arc"}]},
+    {"sequence_id":"claim_charm","enabled":true,"one_shot":true,"event":{"type":"unit_enters_region","group_id":"hero","region_id":"river_branch"},"conditions":[{"type":"objective_is","objective_id":"claim_river_charm","state":"active"}],"actions":[{"type":"set_objective_step","objective_id":"claim_river_charm","step_id":"visit_river","state":"completed"},{"type":"set_objective","objective_id":"claim_river_charm","state":"completed"},{"type":"grant_reward","group_id":"hero","reward_id":"item_river_charm"}]},
+    {"sequence_id":"river_ambush_cleared","enabled":true,"one_shot":true,"event":{"type":"unit_died","group_id":"river_raiders"},"conditions":[{"type":"group_alive","group_id":"river_raiders","value":false}],"actions":[{"type":"set_encounter","group_id":"stone_raiders","state":"active","behavior":"leash","leash_region_id":"final_bounds"},{"type":"set_objective_step","objective_id":"reach_meeting_stone","step_id":"break_ambushes","state":"completed"},{"type":"set_objective_step","objective_id":"reach_meeting_stone","step_id":"reach_stone","state":"active"}]},
+    {"sequence_id":"mission_victory","enabled":true,"one_shot":true,"event":{"type":"unit_enters_region","group_id":"hero","region_id":"meeting_stone"},"conditions":[{"type":"group_alive","group_id":"stone_raiders","value":false}],"actions":[{"type":"set_objective_step","objective_id":"reach_meeting_stone","step_id":"reach_stone","state":"completed"},{"type":"set_objective","objective_id":"reach_meeting_stone","state":"completed"},{"type":"play_cinematic","cinematic_id":"ending"},{"type":"complete_scenario","result":"victory"}]}
+  ]
+}

@@ -40,6 +40,68 @@
       "attack_interval": 1.2,
       "attack_range": 1.5,
       "acquisition_range": 8.0
+    },
+    {
+      "definition_id": "ability_warden_storm_arc",
+      "display_name": "Storm Arc",
+      "category": "ability",
+      "scene_path": "res://content/crimsdale/units/guard.tscn",
+      "ability_mode": "chained_damage",
+      "damage": 28.0,
+      "cast_range": 8.0,
+      "cooldown_s": 7.0,
+      "mana_cost": 25.0,
+      "area_radius": 0.0,
+      "chain_count": 3,
+      "presentation": "A bright arc links each struck foe with a distinct impact flash."
+    },
+    {
+      "definition_id": "item_river_charm",
+      "display_name": "River Charm",
+      "category": "item",
+      "scene_path": "res://content/crimsdale/landmarks/fountain.tscn",
+      "item_kind": "permanent_stat",
+      "effect_stat": "strength",
+      "effect_amount": 2.0,
+      "feedback_text": "The River Charm permanently grants 2 Strength."
+    },
+    {
+      "definition_id": "unit_crimsdale_companion",
+      "display_name": "Crimsdale Trailguard",
+      "category": "unit",
+      "scene_path": "res://content/crimsdale/units/guard.tscn",
+      "owner": "ally",
+      "max_health": 100.0,
+      "movement_speed": 4.2,
+      "selection_radius": 0.8,
+      "attack_damage": 11.0,
+      "attack_interval": 1.1,
+      "attack_range": 1.6,
+      "acquisition_range": 7.0
+    },
+    {
+      "definition_id": "unit_crimsdale_warden",
+      "display_name": "Mara Venn, Waywarden",
+      "category": "unit",
+      "scene_path": "res://content/crimsdale/units/guard.tscn",
+      "owner": "player",
+      "max_health": 180.0,
+      "movement_speed": 4.6,
+      "selection_radius": 0.9,
+      "attack_damage": 17.0,
+      "attack_interval": 1.0,
+      "attack_range": 1.7,
+      "acquisition_range": 8.0,
+      "hero": true,
+      "max_mana": 120.0,
+      "starting_level": 1,
+      "starting_experience": 0,
+      "strength": 18.0,
+      "agility": 13.0,
+      "intellect": 16.0,
+      "ability_ids": ["ability_warden_storm_arc"],
+      "inventory_limit": 6,
+      "pickup_behavior": "automatic"
     }
   ]
 }
