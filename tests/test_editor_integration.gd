@@ -136,6 +136,13 @@ func run() -> void:
 	var project_launch: Dictionary = editor.build_test_world_launch("godot", "/projects/Frontier/Game", "/worlds/crimsdale", "player_start")
 	_check(project_launch.arguments == PackedStringArray(["--path", "/projects/Frontier/Game", "--", "--world-package", "/worlds/crimsdale", "--spawn", "player_start"]), "Godot development launch preserves the same runtime contract")
 
+	editor.prepare_new_definition();editor.definition_id_field.text="ability_storm_arc";editor.definition_name.text="Storm Arc";editor.definition_category.select(4);editor.refresh_unit_field_visibility();editor.definition_scene.text="res://content/crimsdale/units/guard.tscn";editor.ability_fields.ability_mode.text="chained_damage";editor.ability_fields.chain_count.text="3";editor.create_definition_from_form()
+	editor.prepare_new_definition();editor.definition_id_field.text="item_veterans_badge";editor.definition_name.text="Veteran's Badge";editor.definition_category.select(5);editor.refresh_unit_field_visibility();editor.definition_scene.text="res://content/crimsdale/units/guard.tscn";editor.item_fields.item_kind.text="permanent_stat";editor.item_fields.effect_stat.text="strength";editor.item_fields.effect_amount.text="2";editor.create_definition_from_form()
+	for index in editor.definition_list.item_count:
+		if editor.definition_list.get_item_metadata(index)=="unit_crimsdale_guard":editor.definition_list.select(index);editor.load_definition_form(index);break
+	editor.hero_fields.hero.text="true";editor.hero_fields.ability_ids.text="ability_storm_arc";editor.apply_definition_changes();editor._preview_gameplay_definition()
+	_check(editor.package.find_definition("unit_crimsdale_guard").ability_ids==["ability_storm_arc"] and "ability_storm_arc" in editor.definition_gameplay_preview.text,"Creator authors and previews a hero ability and item reward without JSON")
+
 	editor.viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
 	root.remove_child(editor)
 	editor.free()

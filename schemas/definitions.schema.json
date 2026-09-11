@@ -16,7 +16,7 @@
         "properties": {
           "definition_id": { "$ref": "#/$defs/id" },
           "display_name": { "type": "string", "minLength": 1 },
-          "category": { "enum": ["building", "prop", "landmark", "unit"] },
+          "category": { "enum": ["building", "prop", "landmark", "unit", "ability", "item"] },
           "scene_path": { "type": "string", "minLength": 1 },
           "owner": { "enum": ["player", "ally", "neutral", "hostile"] },
           "max_health": { "type": "number", "exclusiveMinimum": 0 },
@@ -25,10 +25,18 @@
           "attack_damage": { "type": "number", "minimum": 0 },
           "attack_interval": { "type": "number", "exclusiveMinimum": 0 },
           "attack_range": { "type": "number", "exclusiveMinimum": 0 },
-          "acquisition_range": { "type": "number", "exclusiveMinimum": 0 }
+          "acquisition_range": { "type": "number", "exclusiveMinimum": 0 },
+          "hero":{"const":true}, "max_mana":{"type":"number","exclusiveMinimum":0}, "starting_level":{"type":"integer","minimum":1}, "starting_experience":{"type":"integer","minimum":0}, "strength":{"type":"number","exclusiveMinimum":0}, "agility":{"type":"number","exclusiveMinimum":0}, "intellect":{"type":"number","exclusiveMinimum":0}, "ability_ids":{"type":"array","items":{"$ref":"#/$defs/id"},"uniqueItems":true}, "inventory_limit":{"type":"integer","minimum":1}, "pickup_behavior":{"enum":["automatic","manual"]},
+          "ability_mode":{"enum":["targeted","area","chained_damage"]}, "damage":{"type":"number","minimum":0}, "cast_range":{"type":"number","minimum":0}, "cooldown_s":{"type":"number","minimum":0}, "mana_cost":{"type":"number","minimum":0}, "area_radius":{"type":"number","minimum":0}, "chain_count":{"type":"integer","minimum":1}, "presentation":{"type":"string","minLength":1},
+          "item_kind":{"enum":["consumable","permanent_stat"]}, "effect_stat":{"enum":["health","mana","strength","agility","intellect"]}, "effect_amount":{"type":"number","exclusiveMinimum":0}, "feedback_text":{"type":"string","minLength":1}
         },
         "if": { "properties": { "category": { "const": "unit" } }, "required": ["category"] },
-        "then": { "required": ["owner", "max_health", "movement_speed", "selection_radius", "attack_damage", "attack_interval", "attack_range", "acquisition_range"] }
+        "then": { "required": ["owner", "max_health", "movement_speed", "selection_radius", "attack_damage", "attack_interval", "attack_range", "acquisition_range"] },
+        "allOf":[
+          {"if":{"required":["hero"]},"then":{"required":["max_mana","starting_level","starting_experience","strength","agility","intellect","ability_ids","inventory_limit","pickup_behavior"]}},
+          {"if":{"properties":{"category":{"const":"ability"}},"required":["category"]},"then":{"required":["ability_mode","damage","cast_range","cooldown_s","mana_cost","area_radius","chain_count","presentation"]}},
+          {"if":{"properties":{"category":{"const":"item"}},"required":["category"]},"then":{"required":["item_kind","effect_stat","effect_amount","feedback_text"]}}
+        ]
       }
     }
   },

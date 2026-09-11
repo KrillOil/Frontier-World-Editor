@@ -115,6 +115,13 @@ var definition_scene: LineEdit
 var definition_owner: OptionButton
 var unit_fields: Dictionary = {}
 var unit_section_controls: Array[Control] = []
+var hero_fields:Dictionary={}
+var hero_section_controls:Array[Control]=[]
+var ability_fields:Dictionary={}
+var ability_section_controls:Array[Control]=[]
+var item_fields:Dictionary={}
+var item_section_controls:Array[Control]=[]
+var definition_gameplay_preview:RichTextLabel
 var mouse_position := Vector2.ZERO
 var creating_definition := false
 var moving_instance := false
@@ -1519,6 +1526,7 @@ func refresh_palette() -> void:
 	list.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	palette_content.add_child(list)
 	for category in WorldPackageScript.CATEGORIES:
+		if category=="ability":continue
 		var heading := Label.new()
 		heading.text = category.to_upper()
 		list.add_child(heading)
@@ -1913,6 +1921,14 @@ func _build_object_editor() -> void:
 		if field != "owner":
 			unit_fields[field] = _add_field(form, field.replace("_", " ").capitalize())
 			unit_section_controls.append(unit_fields[field])
+	var hero_heading:=Label.new();hero_heading.text="HERO, ABILITIES & INVENTORY";form.add_child(hero_heading);hero_section_controls.append(hero_heading)
+	for field in WorldPackageScript.HERO_FIELDS:hero_fields[field]=_add_field(form,field.replace("_"," ").capitalize());hero_section_controls.append(hero_fields[field])
+	var ability_heading:=Label.new();ability_heading.text="ABILITY";form.add_child(ability_heading);ability_section_controls.append(ability_heading)
+	for field in WorldPackageScript.ABILITY_FIELDS:ability_fields[field]=_add_field(form,field.replace("_"," ").capitalize());ability_section_controls.append(ability_fields[field])
+	var item_heading:=Label.new();item_heading.text="ITEM REWARD";form.add_child(item_heading);item_section_controls.append(item_heading)
+	for field in WorldPackageScript.ITEM_FIELDS:item_fields[field]=_add_field(form,field.replace("_"," ").capitalize());item_section_controls.append(item_fields[field])
+	_add_button(form,"Preview Gameplay Definition",_preview_gameplay_definition)
+	definition_gameplay_preview=RichTextLabel.new();definition_gameplay_preview.fit_content=true;definition_gameplay_preview.custom_minimum_size.y=80;form.add_child(definition_gameplay_preview)
 	_add_button(form, "Apply Changes", apply_definition_changes)
 	_add_button(form, "New Definition", prepare_new_definition)
 	_add_button(form, "Duplicate", prepare_duplicate_definition)
@@ -2101,6 +2117,7 @@ func load_definition_form(index: int) -> void:
 	definition_category.select(WorldPackageScript.CATEGORIES.find(definition.category))
 	definition_scene.text = definition.scene_path
 	_load_unit_fields(definition)
+	_load_special_fields(definition)
 	refresh_unit_field_visibility()
 
 
@@ -2113,6 +2130,9 @@ func apply_definition_changes() -> void:
 	var changes := {"display_name": definition_name.text, "category": definition_category.get_item_text(definition_category.selected), "scene_path": definition_scene.text}
 	if changes.category == "unit":
 		changes.merge(_unit_form_data())
+		if hero_fields.hero.text.to_lower()=="true":changes.merge(_hero_form_data())
+	elif changes.category=="ability":changes.merge(_ability_form_data())
+	elif changes.category=="item":changes.merge(_item_form_data())
 	package.update_definition(definition.definition_id, changes)
 	refresh_all()
 
@@ -2129,6 +2149,7 @@ func prepare_duplicate_definition() -> void:
 	definition_category.select(WorldPackageScript.CATEGORIES.find(source.category))
 	definition_scene.text = source.scene_path
 	_load_unit_fields(source)
+	_load_special_fields(source)
 	refresh_unit_field_visibility()
 	status("Review the duplicate ID, then choose Create Definition")
 
@@ -2142,6 +2163,7 @@ func prepare_new_definition() -> void:
 	definition_category.select(1)
 	definition_scene.text = ""
 	_load_unit_fields({})
+	_load_special_fields({})
 	refresh_unit_field_visibility()
 	status("Enter all definition fields, then choose Create Definition")
 
@@ -2158,6 +2180,9 @@ func create_definition_from_form() -> void:
 	}
 	if definition.category == "unit":
 		definition.merge(_unit_form_data())
+		if hero_fields.hero.text.to_lower()=="true":definition.merge(_hero_form_data())
+	elif definition.category=="ability":definition.merge(_ability_form_data())
+	elif definition.category=="item":definition.merge(_item_form_data())
 	var created := package.create_definition(definition)
 	if not created:
 		show_errors()
@@ -2182,10 +2207,45 @@ func _unit_form_data() -> Dictionary:
 	return data
 
 
+func _load_special_fields(definition:Dictionary)->void:
+	var hero_defaults:={"hero":"false","max_mana":100,"starting_level":1,"starting_experience":0,"strength":10,"agility":10,"intellect":10,"ability_ids":"","inventory_limit":6,"pickup_behavior":"automatic"}
+	for field in hero_fields:hero_fields[field].text=", ".join(definition.get(field,[])) if field=="ability_ids" else str(definition.get(field,hero_defaults[field]))
+	var ability_defaults:={"ability_mode":"targeted","damage":25,"cast_range":7,"cooldown_s":6,"mana_cost":20,"area_radius":0,"chain_count":1,"presentation":"A clear cast flash and impact cue."}
+	for field in ability_fields:ability_fields[field].text=str(definition.get(field,ability_defaults[field]))
+	var item_defaults:={"item_kind":"consumable","effect_stat":"health","effect_amount":25,"feedback_text":"Health restored."}
+	for field in item_fields:item_fields[field].text=str(definition.get(field,item_defaults[field]))
+
+
+func _hero_form_data()->Dictionary:
+	return {"hero":true,"max_mana":float(hero_fields.max_mana.text),"starting_level":int(hero_fields.starting_level.text),"starting_experience":int(hero_fields.starting_experience.text),"strength":float(hero_fields.strength.text),"agility":float(hero_fields.agility.text),"intellect":float(hero_fields.intellect.text),"ability_ids":_csv_ids(hero_fields.ability_ids.text),"inventory_limit":int(hero_fields.inventory_limit.text),"pickup_behavior":hero_fields.pickup_behavior.text}
+
+
+func _ability_form_data()->Dictionary:
+	return {"ability_mode":ability_fields.ability_mode.text,"damage":float(ability_fields.damage.text),"cast_range":float(ability_fields.cast_range.text),"cooldown_s":float(ability_fields.cooldown_s.text),"mana_cost":float(ability_fields.mana_cost.text),"area_radius":float(ability_fields.area_radius.text),"chain_count":int(ability_fields.chain_count.text),"presentation":ability_fields.presentation.text}
+
+
+func _item_form_data()->Dictionary:
+	return {"item_kind":item_fields.item_kind.text,"effect_stat":item_fields.effect_stat.text,"effect_amount":float(item_fields.effect_amount.text),"feedback_text":item_fields.feedback_text.text}
+
+
 func refresh_unit_field_visibility() -> void:
-	var is_unit := definition_category.get_item_text(definition_category.selected) == "unit"
+	var category:=definition_category.get_item_text(definition_category.selected);var is_unit := category == "unit"
 	for control in unit_section_controls:
 		control.visible = is_unit
+	for control in hero_section_controls:control.visible=is_unit
+	for control in ability_section_controls:control.visible=category=="ability"
+	for control in item_section_controls:control.visible=category=="item"
+
+
+func _preview_gameplay_definition()->void:
+	var category:=definition_category.get_item_text(definition_category.selected)
+	match category:
+		"unit":
+			definition_gameplay_preview.text="HERO %s — level %s, XP %s, mana %s, STR/AGI/INT %s/%s/%s\nAbilities: %s\nInventory: %s slots, %s pickup"%[definition_name.text,hero_fields.starting_level.text,hero_fields.starting_experience.text,hero_fields.max_mana.text,hero_fields.strength.text,hero_fields.agility.text,hero_fields.intellect.text,hero_fields.ability_ids.text,hero_fields.inventory_limit.text,hero_fields.pickup_behavior.text] if hero_fields.hero.text.to_lower()=="true" else "UNIT %s — health %s, attack %s"%[definition_name.text,unit_fields.max_health.text,unit_fields.attack_damage.text]
+		"ability":definition_gameplay_preview.text="ABILITY %s — %s, %s damage, range %s, cooldown %ss, mana %s; %s"%[definition_name.text,ability_fields.ability_mode.text,ability_fields.damage.text,ability_fields.cast_range.text,ability_fields.cooldown_s.text,ability_fields.mana_cost.text,ability_fields.presentation.text]
+		"item":definition_gameplay_preview.text="ITEM %s — %s: +%s %s; %s"%[definition_name.text,item_fields.item_kind.text,item_fields.effect_amount.text,item_fields.effect_stat.text,item_fields.feedback_text.text]
+		_:definition_gameplay_preview.text="WORLD OBJECT %s"%definition_name.text
+	status("Gameplay definition preview refreshed")
 
 
 func delete_definition() -> void:
