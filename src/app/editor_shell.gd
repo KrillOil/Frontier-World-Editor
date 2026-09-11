@@ -1447,11 +1447,14 @@ func _validate_sequence_flow()->void:
 
 
 func _add_validation_finding(severity:String,message:String)->void:
-	var workspace:=_validation_workspace(message);var summary:="%s — %s — %s"%[severity,workspace,message];validation_list.add_item(summary);validation_list.set_item_tooltip(validation_list.item_count-1,summary);validation_list.set_item_metadata(validation_list.item_count-1,{"severity":severity,"workspace":workspace,"message":message})
+	var workspace:=_validation_workspace(message);var finding:=_validation_route(message,workspace);finding.severity=severity;finding.message=message
+	var summary:="%s — %s — %s"%[severity,workspace,_validation_human_message(message,finding)];validation_list.add_item(summary);validation_list.set_item_tooltip(validation_list.item_count-1,"%s\nTechnical detail: %s"%[summary,message]);validation_list.set_item_metadata(validation_list.item_count-1,finding)
 
 
 func _validation_workspace(message:String)->String:
 	var lower:=message.to_lower()
+	if "scenario.json.sequences" in lower:return "Sequences"
+	if "scenario.json.cinematics" in lower:return "Cinematics"
 	if "cinematic" in lower:return "Cinematics"
 	if "sequence" in lower:return "Sequences"
 	if "tutorial" in lower or "objective" in lower:return "Objectives & Guidance"
@@ -1464,15 +1467,53 @@ func _validation_collection_index(message:String,collection:String)->int:
 	return -1 if result==null else int(result.get_string(1))
 
 
+func _validation_route(message:String,workspace:String)->Dictionary:
+	var route:={"workspace":workspace}
+	if workspace=="Cinematics":
+		var index:=_validation_collection_index(message,"cinematics")
+		if index>=0 and index<package.scenario.data.cinematics.size():route.cinematic_id=package.scenario.data.cinematics[index].cinematic_id
+		var step_index:=_validation_collection_index(message,"steps");if step_index>=0:route.step_index=step_index
+	if workspace=="Sequences":
+		var index:=_validation_collection_index(message,"sequences")
+		if index>=0 and index<package.scenario.data.sequences.size():route.sequence_id=package.scenario.data.sequences[index].sequence_id
+		if not route.has("sequence_id"):
+			var named:=RegEx.new();named.compile("[Ss]equence '([^']+)'");var named_match:=named.search(message)
+			if named_match!=null:route.sequence_id=named_match.get_string(1)
+		if not route.has("sequence_id"):
+			var cycle:=RegEx.new();cycle.compile("cycle at '([^']+)'");var cycle_match:=cycle.search(message)
+			if cycle_match!=null:route.sequence_id=cycle_match.get_string(1)
+		for collection in ["conditions","actions"]:
+			var step_index:=_validation_collection_index(message,collection)
+			if step_index>=0:route.sequence_collection=collection;route.step_index=step_index
+	return route
+
+
+func _validation_human_message(message:String,finding:Dictionary)->String:
+	var location:=""
+	if finding.has("cinematic_id"):location="Cinematic '%s'"%finding.cinematic_id
+	if finding.has("sequence_id"):location="Sequence '%s'"%finding.sequence_id
+	if finding.has("step_index"):location+=" — %s %d"%["timeline step" if finding.workspace=="Cinematics" else str(finding.get("sequence_collection","step")).trim_suffix("s"),int(finding.step_index)+1]
+	var marker:=message.find(" has ");var detail:=message.substr(marker+5) if marker>=0 else message
+	if not location.is_empty() and message.begins_with(location):return message
+	return detail if location.is_empty() else "%s: %s"%[location,detail]
+
+
 func _open_selected_validation_finding()->void:
 	var selected:=validation_list.get_selected_items();if selected.is_empty():status("Select a validation finding");return
 	var finding=validation_list.get_item_metadata(selected[0]);if not finding is Dictionary:return
 	validation_dialog.hide();var message:String=finding.message
 	match finding.workspace:
 		"Cinematics":
-			show_cinematic_editor();var index:=_validation_collection_index(message,"cinematics");if index>=0 and index<package.scenario.data.cinematics.size():_reselect_cinematic(package.scenario.data.cinematics[index].cinematic_id)
+			show_cinematic_editor()
+			if finding.has("cinematic_id"):
+				_reselect_cinematic(finding.cinematic_id);var step_index:=int(finding.get("step_index",-1))
+				if step_index>=0 and step_index<cinematic_step_list.item_count:cinematic_step_list.select(step_index);_scrub_cinematic(step_index)
 		"Sequences":
-			show_sequence_editor();var index:=_validation_collection_index(message,"sequences");if index>=0 and index<package.scenario.data.sequences.size():_reload_sequence_by_id(package.scenario.data.sequences[index].sequence_id)
+			show_sequence_editor()
+			if finding.has("sequence_id"):
+				_reload_sequence_by_id(finding.sequence_id);var step_index:=int(finding.get("step_index",-1));var collection:=str(finding.get("sequence_collection",""))
+				if step_index>=0 and collection=="conditions" and step_index<sequence_conditions.item_count:sequence_conditions.select(step_index)
+				if step_index>=0 and collection=="actions" and step_index<sequence_actions.item_count:sequence_actions.select(step_index)
 		"Objectives & Guidance":show_guidance_editor()
 		"Groups & Encounters":show_encounter_editor()
 		_:show_scenario_editor()

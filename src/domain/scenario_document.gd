@@ -374,8 +374,12 @@ func delete_sequence_step(sequence_id: String, collection: String, index: int, w
 func flow_diagnostics() -> Array[String]:
 	var messages: Array[String] = []
 	for sequence in data.get("sequences", []):
-		if not sequence.enabled: messages.append("Sequence '%s' is disabled" % sequence.sequence_id)
-		if sequence.event.get("type") == "sequence_completed" and not _find(data.sequences, "sequence_id", sequence.event.get("sequence_id", "")).enabled: messages.append("Sequence '%s' waits on a disabled sequence" % sequence.sequence_id)
+		if not sequence is Dictionary:continue
+		if not sequence.get("enabled",false):messages.append("Sequence '%s' is disabled" % sequence.get("sequence_id","unnamed"))
+		var event=sequence.get("event",{})
+		if event is Dictionary and event.get("type") == "sequence_completed":
+			var dependency:=_find(data.sequences,"sequence_id",event.get("sequence_id",""))
+			if not dependency.is_empty() and not dependency.get("enabled",false):messages.append("Sequence '%s' waits on a disabled sequence" % sequence.get("sequence_id","unnamed"))
 	return messages
 
 
@@ -619,7 +623,9 @@ func _validate_action(value, context: String, regions: Dictionary, groups: Dicti
 func _validate_sequence_cycles(values: Array, sequence_ids: Dictionary, failures: Array[String]) -> void:
 	var edges := {}; for id in sequence_ids: edges[id] = []
 	for sequence in values:
-		if sequence is Dictionary and sequence.get("event", {}).get("type") == "sequence_completed": edges[sequence.event.sequence_id].append(sequence.sequence_id)
+		if not sequence is Dictionary:continue
+		var event=sequence.get("event",{})
+		if event is Dictionary and event.get("type") == "sequence_completed" and edges.has(event.get("sequence_id")): edges[event.sequence_id].append(sequence.get("sequence_id",""))
 	var visiting := {}; var visited := {}
 	for id in edges:
 		if _cycle(id, edges, visiting, visited): failures.append("scenario.json.sequences contains a sequence_completed cycle at '%s'" % id); return
