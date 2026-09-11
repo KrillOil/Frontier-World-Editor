@@ -28,7 +28,7 @@ func load_from_file(path: String, world: Dictionary) -> bool:
 
 
 func create(scenario_id: String, title: String, description: String, player_faction_id: String, world: Dictionary) -> bool:
-	var candidate := {"scenario_format_version":FORMAT_VERSION,"scenario_id":scenario_id,"title":title,"description":description,"player_faction_id":player_faction_id,"regions":[],"unit_groups":[],"objectives":[],"tutorials":[],"cinematics":[],"sequences":[]}
+	var candidate := {"scenario_format_version":FORMAT_VERSION,"scenario_id":scenario_id,"title":title,"description":description,"player_faction_id":player_faction_id,"regions":[],"unit_groups":[],"objectives":[],"tutorials":[],"encounters":[],"cinematics":[],"sequences":[]}
 	var failures := validate(candidate, world)
 	if not failures.is_empty(): return _fail(failures)
 	data = candidate; dirty = true; history.clear(); redo_history.clear(); errors.clear(); return true
@@ -148,6 +148,57 @@ func delete_tutorial(tutorial_id: String, world: Dictionary) -> bool:
 	return _commit(candidate, world)
 
 
+func add_group(group_id: String, instance_ids: Array, world: Dictionary) -> bool:
+	var candidate:Dictionary=data.duplicate(true);candidate.unit_groups.append({"group_id":group_id,"instance_ids":instance_ids.duplicate()});return _commit(candidate,world)
+
+
+func update_group(group_id:String,instance_ids:Array,world:Dictionary)->bool:
+	var candidate:Dictionary=data.duplicate(true);var group:=_find(candidate.unit_groups,"group_id",group_id)
+	if group.is_empty():return _fail(["Unknown unit group '%s'"%group_id])
+	group.instance_ids=instance_ids.duplicate();return _commit(candidate,world)
+
+
+func delete_group(group_id:String,world:Dictionary)->bool:
+	var references:=group_references(group_id)
+	if not references.is_empty():return _fail(["Cannot delete unit group '%s'; referenced by %s"%[group_id,", ".join(references)]])
+	var candidate:Dictionary=data.duplicate(true);var prior:int=candidate.unit_groups.size();candidate.unit_groups=candidate.unit_groups.filter(func(group):return group.group_id!=group_id)
+	if candidate.unit_groups.size()==prior:return _fail(["Unknown unit group '%s'"%group_id])
+	return _commit(candidate,world)
+
+
+func add_encounter(encounter:Dictionary,world:Dictionary)->bool:
+	var candidate:Dictionary=data.duplicate(true);if not candidate.has("encounters"):candidate.encounters=[]
+	candidate.encounters.append(encounter.duplicate(true));return _commit(candidate,world)
+
+
+func update_encounter(encounter_id:String,changes:Dictionary,world:Dictionary)->bool:
+	var candidate:Dictionary=data.duplicate(true);var encounter:=_find(candidate.get("encounters",[]),"encounter_id",encounter_id)
+	if encounter.is_empty():return _fail(["Unknown encounter '%s'"%encounter_id])
+	for key in ["group_id","initial_state","behavior","leash_region_id","patrol_path_region_id","completion","reinforcement_group_ids"]:
+		if changes.has(key) and changes[key] != "":encounter[key]=changes[key].duplicate() if changes[key] is Array else changes[key]
+		elif changes.has(key):encounter.erase(key)
+	return _commit(candidate,world)
+
+
+func delete_encounter(encounter_id:String,world:Dictionary)->bool:
+	var candidate:Dictionary=data.duplicate(true);var prior:int=candidate.get("encounters",[]).size();candidate.encounters=candidate.get("encounters",[]).filter(func(encounter):return encounter.encounter_id!=encounter_id)
+	if candidate.encounters.size()==prior:return _fail(["Unknown encounter '%s'"%encounter_id])
+	return _commit(candidate,world)
+
+
+func group_references(group_id:String)->Array[String]:
+	var result:Array[String]=[]
+	for encounter in data.get("encounters",[]):
+		if encounter.get("group_id")==group_id or group_id in encounter.get("reinforcement_group_ids",[]):result.append("encounter %s"%encounter.encounter_id)
+	for sequence in data.get("sequences",[]):
+		if sequence.event.get("group_id")==group_id:result.append("sequence %s event"%sequence.sequence_id)
+		for condition in sequence.conditions:
+			if condition.get("group_id")==group_id:result.append("sequence %s condition"%sequence.sequence_id)
+		for action in sequence.actions:
+			if action.get("group_id")==group_id:result.append("sequence %s action"%sequence.sequence_id)
+	return result
+
+
 func add_sequence(sequence_id: String, event: Dictionary, world: Dictionary, enabled := true, one_shot := true) -> bool:
 	var candidate: Dictionary = data.duplicate(true)
 	candidate.sequences.append({"sequence_id":sequence_id,"enabled":enabled,"one_shot":one_shot,"event":event.duplicate(true),"conditions":[],"actions":[{"type":"show_message","message_id":sequence_id + "_message","text":"New sequence","duration_s":2.0}]})
@@ -220,6 +271,8 @@ func region_references(region_id: String) -> Array[String]:
 			if step.get("checkpoint_region_id") == region_id: result.append("objective %s step %s" % [objective.objective_id, step.step_id])
 	for tutorial in data.get("tutorials", []):
 		if tutorial.get("region_id") == region_id: result.append("tutorial %s" % tutorial.tutorial_id)
+	for encounter in data.get("encounters",[]):
+		if encounter.get("leash_region_id")==region_id or encounter.get("patrol_path_region_id")==region_id:result.append("encounter %s"%encounter.encounter_id)
 	for cinematic in data.get("cinematics", []):
 		for step_index in cinematic.steps.size():
 			if cinematic.steps[step_index].get("region_id") == region_id or cinematic.steps[step_index].get("target_region_id") == region_id: result.append("cinematic %s step %d" % [cinematic.cinematic_id,step_index])
@@ -244,7 +297,7 @@ func mark_saved(path: String) -> void: source_path = path; dirty = false
 
 func validate(candidate: Dictionary, world: Dictionary) -> Array[String]:
 	var failures: Array[String] = []
-	_exact_optional(candidate, ["scenario_format_version","scenario_id","title","description","player_faction_id","regions","unit_groups","objectives","cinematics","sequences"], ["tutorials"], "scenario.json", failures)
+	_exact_optional(candidate, ["scenario_format_version","scenario_id","title","description","player_faction_id","regions","unit_groups","objectives","cinematics","sequences"], ["tutorials","encounters"], "scenario.json", failures)
 	if candidate.get("scenario_format_version") != FORMAT_VERSION: failures.append("scenario.json: unsupported scenario_format_version '%s'" % candidate.get("scenario_format_version"))
 	for field in ["scenario_id", "player_faction_id"]:
 		if not _valid_id(candidate.get(field)): failures.append("scenario.json.%s must be a stable ID" % field)
@@ -257,6 +310,7 @@ func validate(candidate: Dictionary, world: Dictionary) -> Array[String]:
 	var group_ids := _validate_groups(candidate.unit_groups, world, failures)
 	var objective_ids := _validate_objectives(candidate.objectives, region_ids, failures)
 	var tutorial_ids := _validate_tutorials(candidate.get("tutorials", []), region_ids, failures)
+	_validate_encounters(candidate.get("encounters",[]),region_ids,group_ids,failures)
 	var cinematic_ids := _validate_cinematics(candidate.cinematics, region_ids, group_ids, world, failures)
 	var sequence_ids := _ids(candidate.sequences, "sequence_id", "sequences", failures)
 	for tutorial in candidate.get("tutorials", []):
@@ -268,7 +322,7 @@ func validate(candidate: Dictionary, world: Dictionary) -> Array[String]:
 
 func canonical_text() -> String:
 	var normalized := data.duplicate(true)
-	for pair in [["regions","region_id"],["unit_groups","group_id"],["objectives","objective_id"],["tutorials","tutorial_id"],["cinematics","cinematic_id"],["sequences","sequence_id"]]:
+	for pair in [["regions","region_id"],["unit_groups","group_id"],["objectives","objective_id"],["tutorials","tutorial_id"],["encounters","encounter_id"],["cinematics","cinematic_id"],["sequences","sequence_id"]]:
 		if not normalized.has(pair[0]): continue
 		normalized[pair[0]].sort_custom(func(a, b): return a[pair[1]] < b[pair[1]])
 	return _canonical_json(normalized) + "\n"
@@ -346,6 +400,21 @@ func _validate_tutorials(values: Array, regions: Dictionary, failures: Array[Str
 		_exact_optional(value,["tutorial_id","text","control","indicator","acknowledgement"],["region_id","highlight","gates_sequence_id"],context,failures)
 		if value.get("control") not in ["select","move","camera","group","attack","ability"] or value.get("indicator") not in ["viewport","world","both"] or value.get("acknowledgement") not in ["automatic","input"]:failures.append("%s has invalid guidance settings"%context)
 		if value.has("region_id") and not regions.has(value.region_id):failures.append("%s references unknown region"%context)
+	return ids
+
+
+func _validate_encounters(values:Array,regions:Dictionary,groups:Dictionary,failures:Array[String])->Dictionary:
+	var ids:=_ids(values,"encounter_id","encounters",failures)
+	for index in values.size():
+		var value=values[index];var context:="scenario.json.encounters[%d]"%index
+		if not value is Dictionary:continue
+		_exact_optional(value,["encounter_id","group_id","initial_state","behavior","leash_region_id","completion","reinforcement_group_ids"],["patrol_path_region_id"],context,failures)
+		if not groups.has(value.get("group_id")) or value.get("initial_state") not in ["inactive","active"] or value.get("behavior") not in ["guard","sleep","patrol","attack","leash"] or not regions.has(value.get("leash_region_id")) or value.get("completion")!="all_defeated":failures.append("%s has invalid encounter settings"%context)
+		if value.has("patrol_path_region_id") and not regions.has(value.patrol_path_region_id):failures.append("%s has unresolved patrol path"%context)
+		if not value.get("reinforcement_group_ids") is Array:failures.append("%s reinforcements must be an array"%context)
+		else:
+			for group_id in value.reinforcement_group_ids:
+				if not groups.has(group_id):failures.append("%s has unresolved reinforcement group"%context)
 	return ids
 
 

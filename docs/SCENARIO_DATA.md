@@ -18,6 +18,7 @@
 - Unit groups: stable references to placed unit instance IDs.
 - Objectives: main or optional, initially hidden or active, with ordered steps and optional checkpoint regions.
 - Tutorials: reusable control guidance with viewport/world indicators, optional highlights, and optional sequence gates.
+- Encounters: a primary unit group, initial state, AI behavior, leash bounds, optional patrol path, all-defeated completion, and ordered reinforcement groups.
 - Cinematics: ordered typed steps; v1 supports dialogue, camera, unit cue, and audio.
 - Sequences: one event, typed conditions, and ordered actions.
 

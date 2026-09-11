@@ -100,6 +100,12 @@ var objective_fields: Dictionary = {}
 var tutorial_list: ItemList
 var tutorial_fields: Dictionary = {}
 var guidance_preview: RichTextLabel
+var encounter_dialog:Window
+var group_list:ItemList
+var group_fields:Dictionary={}
+var encounter_list:ItemList
+var encounter_fields:Dictionary={}
+var encounter_preview:RichTextLabel
 var pending_after_save: Callable
 var definition_list: ItemList
 var definition_id_field: LineEdit
@@ -133,6 +139,7 @@ func _ready() -> void:
 	_build_scenario_editor()
 	_build_sequence_editor()
 	_build_guidance_editor()
+	_build_encounter_editor()
 	_build_object_editor()
 	_build_terrain_editor()
 	_build_package_dialogs()
@@ -804,6 +811,7 @@ func _build_scenario_editor() -> void:
 	_add_button(form, "Create Scenario", _create_scenario)
 	_add_button(form, "Apply Scenario Details", _apply_scenario_metadata)
 	_add_button(form, "Open Objectives & Guidance…", show_guidance_editor)
+	_add_button(form, "Open Groups & Encounters…", show_encounter_editor)
 	_add_button(form, "Open Sequences…", show_sequence_editor)
 	_add_button(form, "Remove Scenario…", func(): scenario_remove_confirmation.popup_centered())
 	var divider := HSeparator.new(); form.add_child(divider)
@@ -874,6 +882,107 @@ func _build_guidance_editor() -> void:
 	_add_button(form,"Add Tutorial",_add_tutorial);_add_button(form,"Update Selected Tutorial",_update_tutorial);_add_button(form,"Delete Selected Tutorial",_delete_tutorial)
 	_add_button(form,"Preview Mission Guidance",_preview_guidance)
 	guidance_preview=RichTextLabel.new();guidance_preview.fit_content=true;guidance_preview.custom_minimum_size.y=110;guidance_preview.bbcode_enabled=false;form.add_child(guidance_preview)
+
+
+func _build_encounter_editor()->void:
+	encounter_dialog=Window.new();encounter_dialog.title="Scenario Editor — Groups & Encounters";encounter_dialog.size=Vector2i(760,840);encounter_dialog.close_requested.connect(encounter_dialog.hide);add_child(encounter_dialog)
+	var scroll:=ScrollContainer.new();scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT);scroll.offset_left=18;scroll.offset_top=18;scroll.offset_right=-18;scroll.offset_bottom=-18;encounter_dialog.add_child(scroll)
+	var form:=VBoxContainer.new();form.size_flags_horizontal=Control.SIZE_EXPAND_FILL;scroll.add_child(form)
+	var help:=Label.new();help.text="Groups reference placed unit Instance IDs. Recruit allies with Set Ownership in Sequences. Encounters stay dormant until a region-entry or prior-completion sequence applies Set Encounter.";help.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;form.add_child(help)
+	var heading:=Label.new();heading.text="Unit groups";form.add_child(heading);group_list=ItemList.new();group_list.custom_minimum_size.y=110;group_list.item_selected.connect(_load_group);form.add_child(group_list)
+	group_fields.group_id=_add_field(form,"Group ID");group_fields.instance_ids=_add_field(form,"Placed Instance IDs (comma separated)")
+	_add_button(form,"Add Group",_add_group);_add_button(form,"Update Selected Group",_update_group);_add_button(form,"Delete Selected Group",_delete_group)
+	form.add_child(HSeparator.new());heading=Label.new();heading.text="Staged encounters";form.add_child(heading);encounter_list=ItemList.new();encounter_list.custom_minimum_size.y=110;encounter_list.item_selected.connect(_load_encounter);form.add_child(encounter_list)
+	for field in ["encounter_id","group_id","initial_state","behavior","leash_region_id","patrol_path_region_id","completion","reinforcement_group_ids"]:encounter_fields[field]=_add_field(form,field.replace("_"," ").capitalize())
+	encounter_fields.initial_state.text="inactive";encounter_fields.behavior.text="sleep";encounter_fields.completion.text="all_defeated"
+	_add_button(form,"Add Encounter",_add_encounter);_add_button(form,"Update Selected Encounter",_update_encounter);_add_button(form,"Delete Selected Encounter",_delete_encounter);_add_button(form,"Preview Staging",_preview_encounters)
+	encounter_preview=RichTextLabel.new();encounter_preview.fit_content=true;encounter_preview.custom_minimum_size.y=120;form.add_child(encounter_preview)
+
+
+func show_encounter_editor()->void:
+	if package.scenario==null:status("Create a scenario before authoring groups");return
+	_refresh_encounters();encounter_dialog.popup_centered();status("Group recruitment and staged encounter workspace")
+
+
+func _csv_ids(text:String)->Array:
+	var result:Array=[]
+	for value in text.split(",",false):
+		var clean:=value.strip_edges();if not clean.is_empty():result.append(clean)
+	return result
+
+
+func _refresh_encounters()->void:
+	group_list.clear();encounter_list.clear()
+	for group in package.scenario.data.unit_groups:group_list.add_item("%s  (%d units)"%[group.group_id,group.instance_ids.size()]);group_list.set_item_metadata(group_list.item_count-1,group.group_id)
+	for encounter in package.scenario.data.get("encounters",[]):encounter_list.add_item("%s  [%s / %s]"%[encounter.encounter_id,encounter.initial_state,encounter.behavior]);encounter_list.set_item_metadata(encounter_list.item_count-1,encounter.encounter_id)
+
+
+func _load_group(index:int)->void:
+	var group:Dictionary=package.scenario._find(package.scenario.data.unit_groups,"group_id",group_list.get_item_metadata(index));group_fields.group_id.text=group.group_id;group_fields.group_id.editable=false;group_fields.instance_ids.text=", ".join(group.instance_ids)
+
+
+func _selected_group_id()->String:
+	var selected:=group_list.get_selected_items();return "" if selected.is_empty() else group_list.get_item_metadata(selected[0])
+
+
+func _add_group()->void:
+	if package.scenario.add_group(group_fields.group_id.text,_csv_ids(group_fields.instance_ids.text),package.world):group_fields.group_id.editable=true;_refresh_encounters();refresh_all();status("Unit group added")
+	else:package.errors=package.scenario.errors;show_errors()
+
+
+func _update_group()->void:
+	var id:=_selected_group_id();if id.is_empty():status("Select a group");return
+	if package.scenario.update_group(id,_csv_ids(group_fields.instance_ids.text),package.world):_refresh_encounters();refresh_all();status("Unit group updated")
+	else:package.errors=package.scenario.errors;show_errors()
+
+
+func _delete_group()->void:
+	var id:=_selected_group_id();if id.is_empty():status("Select a group");return
+	if package.scenario.delete_group(id,package.world):group_fields.group_id.editable=true;_refresh_encounters();refresh_all();status("Unit group deleted")
+	else:package.errors=package.scenario.errors;show_errors()
+
+
+func _encounter_from_form()->Dictionary:
+	var value:={"encounter_id":encounter_fields.encounter_id.text,"group_id":encounter_fields.group_id.text,"initial_state":encounter_fields.initial_state.text,"behavior":encounter_fields.behavior.text,"leash_region_id":encounter_fields.leash_region_id.text,"completion":encounter_fields.completion.text,"reinforcement_group_ids":_csv_ids(encounter_fields.reinforcement_group_ids.text)}
+	if not encounter_fields.patrol_path_region_id.text.is_empty():value.patrol_path_region_id=encounter_fields.patrol_path_region_id.text
+	return value
+
+
+func _add_encounter()->void:
+	if package.scenario.add_encounter(_encounter_from_form(),package.world):encounter_fields.encounter_id.editable=true;_refresh_encounters();refresh_all();status("Staged encounter added")
+	else:package.errors=package.scenario.errors;show_errors()
+
+
+func _load_encounter(index:int)->void:
+	var encounter:Dictionary=package.scenario._find(package.scenario.data.get("encounters",[]),"encounter_id",encounter_list.get_item_metadata(index));encounter_fields.encounter_id.text=encounter.encounter_id;encounter_fields.encounter_id.editable=false
+	for field in ["group_id","initial_state","behavior","leash_region_id","patrol_path_region_id","completion"]:encounter_fields[field].text=str(encounter.get(field,""))
+	encounter_fields.reinforcement_group_ids.text=", ".join(encounter.reinforcement_group_ids)
+
+
+func _update_encounter()->void:
+	var selected:=encounter_list.get_selected_items();if selected.is_empty():status("Select an encounter");return
+	var id:String=encounter_list.get_item_metadata(selected[0]);var changes:=_encounter_from_form();changes.erase("encounter_id")
+	if package.scenario.update_encounter(id,changes,package.world):_refresh_encounters();refresh_all();status("Encounter updated")
+	else:package.errors=package.scenario.errors;show_errors()
+
+
+func _delete_encounter()->void:
+	var selected:=encounter_list.get_selected_items();if selected.is_empty():status("Select an encounter");return
+	var id:String=encounter_list.get_item_metadata(selected[0])
+	if package.scenario.delete_encounter(id,package.world):encounter_fields.encounter_id.editable=true;_refresh_encounters();refresh_all();status("Encounter deleted")
+	else:package.errors=package.scenario.errors;show_errors()
+
+
+func _preview_encounters()->void:
+	var lines:Array[String]=["STAGING PREVIEW (IDs and labels accompany every world shape)"]
+	for group in package.scenario.data.unit_groups:lines.append("GROUP %s: %s"%[group.group_id,", ".join(group.instance_ids)])
+	for encounter in package.scenario.data.get("encounters",[]):
+		var activators:Array[String]=[]
+		for sequence in package.scenario.data.sequences:
+			for action in sequence.actions:
+				if action.get("type")=="set_encounter" and action.get("group_id")==encounter.group_id:activators.append(sequence.sequence_id+" via "+sequence.event.type)
+		lines.append("ENCOUNTER %s: %s / %s; leash=%s; patrol=%s; activate=%s; reinforcements=%s"%[encounter.encounter_id,encounter.initial_state,encounter.behavior,encounter.leash_region_id,encounter.get("patrol_path_region_id","none"),", ".join(activators) if not activators.is_empty() else "not wired",", ".join(encounter.reinforcement_group_ids)])
+	encounter_preview.text="\n".join(lines);status("Encounter staging preview refreshed")
 
 
 func show_guidance_editor()->void:
@@ -2099,11 +2208,12 @@ func unique_definition_id(base: String) -> String:
 
 
 func perform_undo() -> void:
-	if package.scenario != null and (scenario_dialog.visible or guidance_dialog.visible or sequence_dialog.visible) and package.scenario.can_undo() and package.scenario.undo():
+	if package.scenario != null and (scenario_dialog.visible or guidance_dialog.visible or sequence_dialog.visible or encounter_dialog.visible) and package.scenario.can_undo() and package.scenario.undo():
 		selected_instance_id = ""
 		_refresh_scenario_form()
 		if guidance_dialog.visible:_refresh_guidance()
 		if sequence_dialog.visible:_refresh_sequence_list()
+		if encounter_dialog.visible:_refresh_encounters()
 		refresh_all()
 	elif package.terrain != null and package.terrain.can_undo() and package.terrain.undo():
 		selected_instance_id = ""
@@ -2114,11 +2224,12 @@ func perform_undo() -> void:
 
 
 func perform_redo() -> void:
-	if package.scenario != null and (scenario_dialog.visible or guidance_dialog.visible or sequence_dialog.visible) and package.scenario.can_redo() and package.scenario.redo():
+	if package.scenario != null and (scenario_dialog.visible or guidance_dialog.visible or sequence_dialog.visible or encounter_dialog.visible) and package.scenario.can_redo() and package.scenario.redo():
 		selected_instance_id = ""
 		_refresh_scenario_form()
 		if guidance_dialog.visible:_refresh_guidance()
 		if sequence_dialog.visible:_refresh_sequence_list()
+		if encounter_dialog.visible:_refresh_encounters()
 		refresh_all()
 	elif package.terrain != null and package.terrain.can_redo() and package.terrain.redo():
 		selected_instance_id = ""
