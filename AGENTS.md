@@ -25,7 +25,8 @@ Keep documentation short, testable, and tied to implementation. Put planned work
 - Frontier implements runtime concepts and consumes exported authored data.
 - Crimsdale is the first reference world.
 - Only world composition is commissioned initially.
-- Terrain authoring, triggers, regions, campaigns, mod packaging, and broad asset import are out of scope until commissioned.
+- Terrain authoring is accepted. The Guided Tutorial Mission capability commissions only the regions, constrained event-condition-action sequences, objectives, tutorial guidance, encounter behavior, hero/reward primitives, visibility, and cinematics required by its accepted GitHub issues.
+- General-purpose scripting, base-building systems, multiplayer, mod packaging, and broad asset import remain out of scope.
 - **Test World** integration is the destination of the first end-to-end sequence, not a reason to couple repositories.
 
 ## Delivery rules
@@ -44,4 +45,3 @@ Keep documentation short, testable, and tied to implementation. Put planned work
 - Changed user behavior is manually verified in Godot where applicable.
 - No unrelated feature or framework is added.
 - Documentation changes are concise and necessary for the next agent or the Creator.
-

@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://frontier.invalid/schemas/scenario-v1.json",
+  "title": "Frontier scenario v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["scenario_format_version", "scenario_id", "title", "description", "player_faction_id", "regions", "unit_groups", "objectives", "cinematics", "sequences"],
+  "properties": {
+    "scenario_format_version": { "const": 1 },
+    "scenario_id": { "$ref": "#/$defs/id" },
+    "title": { "type": "string", "minLength": 1 },
+    "description": { "type": "string" },
+    "player_faction_id": { "$ref": "#/$defs/id" },
+    "regions": { "type": "array", "items": { "$ref": "#/$defs/region" } },
+    "unit_groups": { "type": "array", "items": { "$ref": "#/$defs/group" } },
+    "objectives": { "type": "array", "items": { "$ref": "#/$defs/objective" } },
+    "cinematics": { "type": "array", "items": { "$ref": "#/$defs/cinematic" } },
+    "sequences": { "type": "array", "items": { "$ref": "#/$defs/sequence" } }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+    "vector3": { "type": "array", "prefixItems": [{"type":"number"},{"type":"number"},{"type":"number"}], "items": false, "minItems": 3, "maxItems": 3 },
+    "region": {
+      "type": "object", "additionalProperties": false,
+      "required": ["region_id", "display_name", "shape", "points"],
+      "properties": { "region_id":{"$ref":"#/$defs/id"}, "display_name":{"type":"string","minLength":1}, "shape":{"enum":["point","rectangle","path"]}, "points":{"type":"array","items":{"$ref":"#/$defs/vector3"},"minItems":1} }
+    },
+    "group": {
+      "type":"object", "additionalProperties":false, "required":["group_id","instance_ids"],
+      "properties":{"group_id":{"$ref":"#/$defs/id"},"instance_ids":{"type":"array","items":{"$ref":"#/$defs/id"},"minItems":1,"uniqueItems":true}}
+    },
+    "objective": {
+      "type":"object", "additionalProperties":false, "required":["objective_id","title","kind","initial_state"],
+      "properties":{"objective_id":{"$ref":"#/$defs/id"},"title":{"type":"string","minLength":1},"kind":{"enum":["main","optional"]},"initial_state":{"enum":["hidden","active"]}}
+    },
+    "cinematic": {
+      "type":"object", "additionalProperties":false, "required":["cinematic_id","skippable","steps"],
+      "properties":{"cinematic_id":{"$ref":"#/$defs/id"},"skippable":{"type":"boolean"},"steps":{"type":"array","items":{"$ref":"#/$defs/typed"}}}
+    },
+    "typed": {
+      "type":"object", "required":["type"], "properties":{"type":{"type":"string"}}, "additionalProperties":true
+    },
+    "sequence": {
+      "type":"object", "additionalProperties":false, "required":["sequence_id","enabled","one_shot","event","conditions","actions"],
+      "properties":{"sequence_id":{"$ref":"#/$defs/id"},"enabled":{"type":"boolean"},"one_shot":{"type":"boolean"},"event":{"$ref":"#/$defs/typed"},"conditions":{"type":"array","items":{"$ref":"#/$defs/typed"}},"actions":{"type":"array","items":{"$ref":"#/$defs/typed"},"minItems":1}}
+    }
+  }
+}
