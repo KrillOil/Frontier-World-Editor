@@ -22,3 +22,4 @@ fi
 "$godot_bin" --headless --path "$project_root" --script res://tests/test_terrain_environment.gd
 "$godot_bin" --headless --path "$project_root" --script res://tests/test_terrain_workflow.gd
 "$godot_bin" --headless --path "$project_root" --script res://tests/test_terrain_delivery.gd
+"$godot_bin" --headless --path "$project_root" --script res://tests/test_scenario_contract.gd
