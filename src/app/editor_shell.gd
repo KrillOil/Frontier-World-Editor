@@ -971,7 +971,7 @@ func _refresh_cinematics()->void:
 	cinematic_list.clear();cinematic_step_list.clear();var seen_ids:={}
 	for index in package.scenario.data.cinematics.size():
 		var cinematic=package.scenario.data.cinematics[index]
-		var stable_id:=str(cinematic.get("cinematic_id","")) if cinematic is Dictionary else "";var valid_id:bool=package.scenario._valid_id(stable_id);var invalid:bool=not cinematic is Dictionary or not valid_id or seen_ids.has(stable_id) or not cinematic.get("steps") is Array
+		var stable_id:=str(cinematic.get("cinematic_id","")) if cinematic is Dictionary else "";var valid_id:bool=package.scenario._valid_id(stable_id);var invalid:bool=not cinematic is Dictionary or not valid_id or seen_ids.has(stable_id) or not cinematic.get("steps") is Array or not cinematic.get("skippable") is bool or cinematic.has("letterbox") and not cinematic.get("letterbox") is bool or cinematic.has("control_lock") and not cinematic.get("control_lock") is bool
 		if valid_id:seen_ids[stable_id]=true
 		var metadata:={"entity_index":index,"stable_id":stable_id,"invalid":invalid}
 		if invalid:cinematic_list.add_item("Invalid cinematic%s (entry %d) — select Delete Cinematic to remove"%[" '%s'"%stable_id if not stable_id.is_empty() else "",index+1]);cinematic_list.set_item_metadata(cinematic_list.item_count-1,metadata);continue
@@ -1321,7 +1321,7 @@ func _refresh_sequence_list() -> void:
 	if package.scenario==null:return
 	var sequences:Array=[];var seen_ids:={}
 	for index in package.scenario.data.sequences.size():
-		var value=package.scenario.data.sequences[index];var stable_id:=str(value.get("sequence_id","")) if value is Dictionary else "";var valid_id:bool=package.scenario._valid_id(stable_id);var invalid:bool=not value is Dictionary or not valid_id or seen_ids.has(stable_id) or not value.get("event") is Dictionary or not value.get("conditions") is Array or not value.get("actions") is Array
+		var value=package.scenario.data.sequences[index];var stable_id:=str(value.get("sequence_id","")) if value is Dictionary else "";var valid_id:bool=package.scenario._valid_id(stable_id);var invalid:bool=not value is Dictionary or not valid_id or seen_ids.has(stable_id) or not value.get("event") is Dictionary or not value.get("conditions") is Array or not value.get("actions") is Array or not value.get("enabled") is bool or not value.get("one_shot") is bool
 		if valid_id:seen_ids[stable_id]=true
 		sequences.append({"index":index,"value":value,"stable_id":stable_id,"invalid":invalid})
 	sequences.sort_custom(func(a,b):
