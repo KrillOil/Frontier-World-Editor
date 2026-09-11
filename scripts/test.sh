@@ -30,3 +30,4 @@ fi
 "$godot_bin" --headless --path "$project_root" --script res://tests/test_hero_rewards.gd
 "$godot_bin" --headless --path "$project_root" --script res://tests/test_scenario_cinematics.gd
 "$godot_bin" --headless --path "$project_root" --script res://tests/test_crimsdale_reference_mission.gd
+"$godot_bin" --headless --path "$project_root" --script res://tests/test_guided_mission_template.gd
