@@ -824,6 +824,7 @@ func _build_scenario_editor() -> void:
 	for field in ["fog_enabled","explored_radius_m","hidden_by_default"]:scenario_fields[field]=_add_field(form,field.replace("_"," ").capitalize())
 	scenario_fields.scenario_id.editable = false
 	_add_button(form, "Create Scenario", _create_scenario)
+	_add_button(form, "Create Guided Mission Template", _create_guided_mission_template)
 	_add_button(form, "Apply Scenario Details", _apply_scenario_metadata)
 	_add_button(form, "Open Objectives & Guidance…", show_guidance_editor)
 	_add_button(form, "Open Groups & Encounters…", show_encounter_editor)
@@ -1399,6 +1400,13 @@ func _create_scenario() -> void:
 	if scenario.create(scenario_id, "Crimsdale Guided Tutorial", "A guided hero-and-squad journey through Crimsdale.", "frontier_company", package.world):
 		package.scenario = scenario; package.scenario_removed = false; _refresh_scenario_form(); refresh_all(); status("Created scenario '%s'" % scenario_id)
 	else: package.errors = scenario.errors; show_errors()
+
+
+func _create_guided_mission_template()->void:
+	if package.scenario!=null:status("Remove the existing scenario before applying a guided mission template");return
+	var scenario=ScenarioDocumentScript.new();var scenario_id:=str(package.world.get("world_id","world"))+"_guided_mission"
+	if scenario.create_guided_mission_template(scenario_id,package.world,package.definitions):package.scenario=scenario;package.scenario_removed=false;_refresh_scenario_form();refresh_all();status("Guided mission template created — review its generic roles and checkpoints")
+	else:package.errors=scenario.errors;show_errors()
 
 
 func _apply_scenario_metadata() -> void:

@@ -13,3 +13,5 @@ Open `worlds/crimsdale`. The package is the executable reference for scenario au
 Balance baseline: Mara has 180 health and Storm Arc; three allies have 100 health each; raiders have 85 health. All combat encounters start inactive. Dialogue remains readable without audio, and both cinematics are skippable.
 
 Originality boundary: retain the guided tutorial rhythm, but do not add Blizzard names, dialogue, assets, audio, or copied map geometry.
+
+To reproduce this structure from an empty scenario through the UI, follow `docs/CREATOR_TUTORIAL.md`, then complete `docs/CREATOR_REVIEW.md`.

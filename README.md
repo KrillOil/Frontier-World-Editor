@@ -4,6 +4,8 @@ A standalone Godot 4.7.1 authoring application for Frontier, inspired by the War
 
 The editor owns reusable object definitions and map composition. Frontier consumes exported authored data. The first commissioned slice is a Crimsdale-based world-composition loop: open, navigate, select, place, transform, delete, save, and eventually **Test World** in Frontier.
 
+Build the guided-mission MVP through the UI with [the Creator tutorial](docs/CREATOR_TUTORIAL.md), then use [the review checklist](docs/CREATOR_REVIEW.md).
+
 ## Start here
 
 - Agents: read [`AGENTS.md`](AGENTS.md), then take one ready GitHub issue.
