@@ -2,6 +2,7 @@ class_name WorldPackage
 extends RefCounted
 
 const TerrainDocumentScript = preload("res://src/domain/terrain_document.gd")
+const ScenarioDocumentScript = preload("res://src/domain/scenario_document.gd")
 const FORMAT_VERSION := 1
 const CATEGORIES := ["building", "prop", "landmark", "unit"]
 const ID_PATTERN := "^[a-z][a-z0-9_]*$"
@@ -14,6 +15,8 @@ var world: Dictionary = {}
 var errors: Array[String] = []
 var dirty := false
 var terrain
+var scenario
+var scenario_removed := false
 var _undo: Array[Dictionary] = []
 var _redo: Array[Dictionary] = []
 
@@ -36,6 +39,13 @@ func load_from_directory(path: String) -> bool:
 		if not candidate_terrain.load_from_file(terrain_path):
 			errors = candidate_terrain.errors.duplicate()
 			return false
+	var candidate_scenario = null
+	var scenario_path := path.path_join("scenario.json")
+	if FileAccess.file_exists(scenario_path):
+		candidate_scenario = ScenarioDocumentScript.new()
+		if not candidate_scenario.load_from_file(scenario_path, candidate_world):
+			errors = candidate_scenario.errors.duplicate()
+			return false
 	var validation_errors := validate_data(loaded_definitions, candidate_world)
 	if not validation_errors.is_empty():
 		errors = validation_errors
@@ -44,6 +54,8 @@ func load_from_directory(path: String) -> bool:
 	definitions = candidate_definitions
 	world = candidate_world
 	terrain = candidate_terrain
+	scenario = candidate_scenario
+	scenario_removed = false
 	errors.clear()
 	dirty = false
 	_undo.clear()
@@ -345,6 +357,7 @@ func save(failure_after_install := -1) -> bool:
 	var definitions_path := package_path.path_join("definitions.json")
 	var world_path := package_path.path_join("world.json")
 	var paths := [definitions_path, world_path]
+	var delete_paths: Array[String] = []
 	if not _write_temporary(definitions_path, JSON.stringify(definition_document, "  ") + "\n"):
 		return false
 	if not _write_temporary(world_path, JSON.stringify(world, "  ") + "\n"):
@@ -358,10 +371,24 @@ func save(failure_after_install := -1) -> bool:
 		if not _write_temporary(terrain_path, terrain.serialize()):
 			return false
 		paths.append(terrain_path)
-	if not _replace_files(paths, failure_after_install):
+	if scenario != null:
+		var scenario_failures: Array[String] = scenario.validate(scenario.data, world)
+		if not scenario_failures.is_empty():
+			errors = scenario_failures
+			return false
+		var scenario_path := package_path.path_join("scenario.json")
+		if not _write_temporary(scenario_path, scenario.canonical_text()):
+			return false
+		paths.append(scenario_path)
+	elif scenario_removed and FileAccess.file_exists(package_path.path_join("scenario.json")):
+		delete_paths.append(package_path.path_join("scenario.json"))
+	if not _replace_files(paths, failure_after_install, delete_paths):
 		return false
 	if terrain != null:
 		terrain.mark_saved(package_path.path_join("terrain.json"))
+	if scenario != null:
+		scenario.mark_saved(package_path.path_join("scenario.json"))
+	scenario_removed = false
 	dirty = false
 	return true
 
@@ -390,39 +417,45 @@ func _write_temporary(path: String, content: String) -> bool:
 	return true
 
 
-func _replace_files(paths: Array, failure_after_install := -1) -> bool:
+func _replace_files(paths: Array, failure_after_install := -1, delete_paths: Array[String] = []) -> bool:
 	var transaction_path := package_path.path_join(".world-package-transaction.json")
+	var transaction_paths: Array = paths + delete_paths
 	var preexisting := []
-	for path in paths: preexisting.append(FileAccess.file_exists(path))
+	for path in transaction_paths: preexisting.append(FileAccess.file_exists(path))
 	var marker := FileAccess.open(transaction_path, FileAccess.WRITE)
 	if marker == null:
 		errors = ["Save prepare stage: transaction marker could not be written"]
 		return false
-	marker.store_string(JSON.stringify({"version": 1, "paths": paths, "preexisting": preexisting}) + "\n")
+	marker.store_string(JSON.stringify({"version": 1, "paths": transaction_paths, "preexisting": preexisting}) + "\n")
 	marker.close()
-	for path in paths:
+	for path in transaction_paths:
 		var backup_path: String = path + ".bak"
 		if FileAccess.file_exists(backup_path):
 			DirAccess.remove_absolute(backup_path)
 		if FileAccess.file_exists(path) and DirAccess.rename_absolute(path, backup_path) != OK:
 			errors = ["%s: could not protect the previous valid file" % path]
-			_restore_backups(paths, preexisting)
+			_restore_backups(transaction_paths, preexisting)
 			return false
 	for index in paths.size():
 		var path: String = paths[index]
 		if DirAccess.rename_absolute(path + ".tmp", path) != OK:
 			errors = ["%s: could not install the validated temporary file" % path]
-			_restore_backups(paths, preexisting)
+			_restore_backups(transaction_paths, preexisting)
 			return false
 		if failure_after_install == index + 1:
 			errors = ["Save commit stage: injected failure after %d file(s); previous package restored" % (index + 1)]
 			_restore_backups(paths, preexisting)
 			return false
-	for path in paths:
+	for path in transaction_paths:
 		if FileAccess.file_exists(path + ".bak"):
 			DirAccess.remove_absolute(path + ".bak")
 	DirAccess.remove_absolute(transaction_path)
 	return true
+
+
+func remove_scenario() -> void:
+	scenario = null
+	scenario_removed = true
 
 
 func _restore_backups(paths: Array, preexisting: Array = []) -> void:
@@ -470,6 +503,8 @@ func terrain_build_identity(build_settings: Dictionary = {}) -> Dictionary:
 
 func test_world_preflight(build_settings: Dictionary = {}) -> Dictionary:
 	var validation := validate()
+	if scenario != null:
+		validation.append_array(scenario.validate(scenario.data, world))
 	validation.append_array(resource_errors())
 	if not validation.is_empty():
 		return {"ok": false, "stage": "validate", "diagnostics": validation, "recovery": "Fix the named authored domain or resource, save, then retry Test World"}
