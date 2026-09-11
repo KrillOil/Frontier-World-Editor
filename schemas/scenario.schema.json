@@ -14,6 +14,7 @@
     "regions": { "type": "array", "items": { "$ref": "#/$defs/region" } },
     "unit_groups": { "type": "array", "items": { "$ref": "#/$defs/group" } },
     "objectives": { "type": "array", "items": { "$ref": "#/$defs/objective" } },
+    "tutorials": { "type": "array", "items": { "$ref": "#/$defs/tutorial" } },
     "cinematics": { "type": "array", "items": { "$ref": "#/$defs/cinematic" } },
     "sequences": { "type": "array", "items": { "$ref": "#/$defs/sequence" } }
   },
@@ -31,7 +32,15 @@
     },
     "objective": {
       "type":"object", "additionalProperties":false, "required":["objective_id","title","kind","initial_state"],
-      "properties":{"objective_id":{"$ref":"#/$defs/id"},"title":{"type":"string","minLength":1},"kind":{"enum":["main","optional"]},"initial_state":{"enum":["hidden","active"]}}
+      "properties":{"objective_id":{"$ref":"#/$defs/id"},"title":{"type":"string","minLength":1},"kind":{"enum":["main","optional"]},"initial_state":{"enum":["hidden","active"]},"steps":{"type":"array","items":{"$ref":"#/$defs/objective_step"}}}
+    },
+    "objective_step": {
+      "type":"object", "additionalProperties":false, "required":["step_id","title"],
+      "properties":{"step_id":{"$ref":"#/$defs/id"},"title":{"type":"string","minLength":1},"checkpoint_region_id":{"$ref":"#/$defs/id"}}
+    },
+    "tutorial": {
+      "type":"object", "additionalProperties":false, "required":["tutorial_id","text","control","indicator","acknowledgement"],
+      "properties":{"tutorial_id":{"$ref":"#/$defs/id"},"text":{"type":"string","minLength":1},"control":{"enum":["select","move","camera","group","attack","ability"]},"indicator":{"enum":["viewport","world","both"]},"acknowledgement":{"enum":["automatic","input"]},"region_id":{"$ref":"#/$defs/id"},"highlight":{"type":"string"},"gates_sequence_id":{"$ref":"#/$defs/id"}}
     },
     "cinematic": {
       "type":"object", "additionalProperties":false, "required":["cinematic_id","skippable","steps"],

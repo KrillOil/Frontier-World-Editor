@@ -5,7 +5,7 @@ const FORMAT_VERSION := 1
 const ID_PATTERN := "^[a-z][a-z0-9_]*$"
 const EVENTS := ["scenario_start", "unit_enters_region", "unit_died", "objective_changed", "sequence_completed"]
 const CONDITIONS := ["objective_is", "group_alive", "group_owned_by", "sequence_has_run"]
-const ACTIONS := ["show_message", "set_objective", "set_ownership", "order_group", "set_encounter", "grant_reward", "play_cinematic", "complete_scenario"]
+const ACTIONS := ["show_message", "show_tutorial", "set_objective", "set_objective_step", "set_ownership", "order_group", "set_encounter", "grant_reward", "play_cinematic", "complete_scenario"]
 const CINEMATIC_STEPS := ["dialogue", "camera", "unit_cue", "audio"]
 
 var data: Dictionary = {}
@@ -28,7 +28,7 @@ func load_from_file(path: String, world: Dictionary) -> bool:
 
 
 func create(scenario_id: String, title: String, description: String, player_faction_id: String, world: Dictionary) -> bool:
-	var candidate := {"scenario_format_version":FORMAT_VERSION,"scenario_id":scenario_id,"title":title,"description":description,"player_faction_id":player_faction_id,"regions":[],"unit_groups":[],"objectives":[],"cinematics":[],"sequences":[]}
+	var candidate := {"scenario_format_version":FORMAT_VERSION,"scenario_id":scenario_id,"title":title,"description":description,"player_faction_id":player_faction_id,"regions":[],"unit_groups":[],"objectives":[],"tutorials":[],"cinematics":[],"sequences":[]}
 	var failures := validate(candidate, world)
 	if not failures.is_empty(): return _fail(failures)
 	data = candidate; dirty = true; history.clear(); redo_history.clear(); errors.clear(); return true
@@ -65,6 +65,86 @@ func delete_region(region_id: String, world: Dictionary) -> bool:
 	if not references.is_empty(): return _fail(["Cannot delete region '%s'; referenced by %s" % [region_id, ", ".join(references)]])
 	var candidate: Dictionary = data.duplicate(true); candidate.regions = candidate.regions.filter(func(region): return region.region_id != region_id)
 	if candidate.regions.size() == data.regions.size(): return _fail(["Unknown scenario region '%s'" % region_id])
+	return _commit(candidate, world)
+
+
+func add_objective(objective_id: String, title: String, kind: String, initial_state: String, world: Dictionary) -> bool:
+	var candidate: Dictionary = data.duplicate(true)
+	candidate.objectives.append({"objective_id":objective_id,"title":title,"kind":kind,"initial_state":initial_state,"steps":[]})
+	return _commit(candidate, world)
+
+
+func update_objective(objective_id: String, changes: Dictionary, world: Dictionary) -> bool:
+	var candidate: Dictionary = data.duplicate(true); var objective := _find(candidate.objectives, "objective_id", objective_id)
+	if objective.is_empty(): return _fail(["Unknown objective '%s'" % objective_id])
+	for key in ["title","kind","initial_state"]:
+		if changes.has(key): objective[key] = changes[key]
+	return _commit(candidate, world)
+
+
+func delete_objective(objective_id: String, world: Dictionary) -> bool:
+	var references: Array[String] = []
+	for sequence in data.get("sequences", []):
+		if sequence.event.get("objective_id") == objective_id: references.append("sequence %s event" % sequence.sequence_id)
+		for condition in sequence.conditions:
+			if condition.get("objective_id") == objective_id: references.append("sequence %s condition" % sequence.sequence_id)
+		for action in sequence.actions:
+			if action.get("objective_id") == objective_id: references.append("sequence %s action" % sequence.sequence_id)
+	if not references.is_empty(): return _fail(["Cannot delete objective '%s'; referenced by %s" % [objective_id, ", ".join(references)]])
+	var candidate: Dictionary = data.duplicate(true); candidate.objectives = candidate.objectives.filter(func(objective): return objective.objective_id != objective_id)
+	if candidate.objectives.size() == data.objectives.size(): return _fail(["Unknown objective '%s'" % objective_id])
+	return _commit(candidate, world)
+
+
+func add_objective_step(objective_id: String, step_id: String, title: String, checkpoint_region_id: String, world: Dictionary) -> bool:
+	var candidate: Dictionary = data.duplicate(true); var objective := _find(candidate.objectives, "objective_id", objective_id)
+	if objective.is_empty(): return _fail(["Unknown objective '%s'" % objective_id])
+	if not objective.has("steps"): objective.steps = []
+	var step := {"step_id":step_id,"title":title}
+	if not checkpoint_region_id.is_empty(): step.checkpoint_region_id = checkpoint_region_id
+	objective.steps.append(step); return _commit(candidate, world)
+
+
+func move_objective_step(objective_id: String, index: int, direction: int, world: Dictionary) -> bool:
+	var candidate: Dictionary = data.duplicate(true); var objective := _find(candidate.objectives, "objective_id", objective_id)
+	var destination := index + direction
+	if objective.is_empty() or index < 0 or destination < 0 or index >= objective.get("steps", []).size() or destination >= objective.get("steps", []).size(): return _fail(["Objective step cannot move farther"])
+	var step = objective.steps.pop_at(index); objective.steps.insert(destination, step); return _commit(candidate, world)
+
+
+func delete_objective_step(objective_id: String, step_id: String, world: Dictionary) -> bool:
+	for sequence in data.get("sequences", []):
+		for action in sequence.actions:
+			if action.get("type") == "set_objective_step" and action.get("objective_id") == objective_id and action.get("step_id") == step_id: return _fail(["Cannot delete objective step '%s'; referenced by sequence %s" % [step_id, sequence.sequence_id]])
+	var candidate: Dictionary = data.duplicate(true); var objective := _find(candidate.objectives, "objective_id", objective_id)
+	if objective.is_empty(): return _fail(["Unknown objective '%s'" % objective_id])
+	var prior: int = objective.get("steps", []).size(); objective.steps = objective.get("steps", []).filter(func(step): return step.step_id != step_id)
+	if objective.steps.size() == prior: return _fail(["Unknown objective step '%s'" % step_id])
+	return _commit(candidate, world)
+
+
+func add_tutorial(tutorial: Dictionary, world: Dictionary) -> bool:
+	var candidate: Dictionary = data.duplicate(true)
+	if not candidate.has("tutorials"): candidate.tutorials = []
+	candidate.tutorials.append(tutorial.duplicate(true)); return _commit(candidate, world)
+
+
+func update_tutorial(tutorial_id: String, changes: Dictionary, world: Dictionary) -> bool:
+	var candidate: Dictionary = data.duplicate(true); var tutorial := _find(candidate.get("tutorials", []), "tutorial_id", tutorial_id)
+	if tutorial.is_empty(): return _fail(["Unknown tutorial '%s'" % tutorial_id])
+	for key in ["text","control","indicator","acknowledgement","region_id","highlight","gates_sequence_id"]:
+		if changes.has(key) and changes[key] != "": tutorial[key] = changes[key]
+		elif changes.has(key): tutorial.erase(key)
+	return _commit(candidate, world)
+
+
+func delete_tutorial(tutorial_id: String, world: Dictionary) -> bool:
+	for sequence in data.get("sequences", []):
+		for action in sequence.actions:
+			if action.get("type") == "show_tutorial" and action.get("tutorial_id") == tutorial_id: return _fail(["Cannot delete tutorial '%s'; referenced by sequence %s" % [tutorial_id, sequence.sequence_id]])
+	var candidate: Dictionary = data.duplicate(true); var prior: int = candidate.get("tutorials", []).size()
+	candidate.tutorials = candidate.get("tutorials", []).filter(func(tutorial): return tutorial.tutorial_id != tutorial_id)
+	if candidate.tutorials.size() == prior: return _fail(["Unknown tutorial '%s'" % tutorial_id])
 	return _commit(candidate, world)
 
 
@@ -135,6 +215,11 @@ func find_region(region_id: String) -> Dictionary: return _find(data.get("region
 
 func region_references(region_id: String) -> Array[String]:
 	var result: Array[String] = []
+	for objective in data.get("objectives", []):
+		for step in objective.get("steps", []):
+			if step.get("checkpoint_region_id") == region_id: result.append("objective %s step %s" % [objective.objective_id, step.step_id])
+	for tutorial in data.get("tutorials", []):
+		if tutorial.get("region_id") == region_id: result.append("tutorial %s" % tutorial.tutorial_id)
 	for cinematic in data.get("cinematics", []):
 		for step_index in cinematic.steps.size():
 			if cinematic.steps[step_index].get("region_id") == region_id or cinematic.steps[step_index].get("target_region_id") == region_id: result.append("cinematic %s step %d" % [cinematic.cinematic_id,step_index])
@@ -159,7 +244,7 @@ func mark_saved(path: String) -> void: source_path = path; dirty = false
 
 func validate(candidate: Dictionary, world: Dictionary) -> Array[String]:
 	var failures: Array[String] = []
-	_exact(candidate, ["scenario_format_version","scenario_id","title","description","player_faction_id","regions","unit_groups","objectives","cinematics","sequences"], "scenario.json", failures)
+	_exact_optional(candidate, ["scenario_format_version","scenario_id","title","description","player_faction_id","regions","unit_groups","objectives","cinematics","sequences"], ["tutorials"], "scenario.json", failures)
 	if candidate.get("scenario_format_version") != FORMAT_VERSION: failures.append("scenario.json: unsupported scenario_format_version '%s'" % candidate.get("scenario_format_version"))
 	for field in ["scenario_id", "player_faction_id"]:
 		if not _valid_id(candidate.get(field)): failures.append("scenario.json.%s must be a stable ID" % field)
@@ -170,17 +255,21 @@ func validate(candidate: Dictionary, world: Dictionary) -> Array[String]:
 	if not failures.is_empty(): return failures
 	var region_ids := _validate_regions(candidate.regions, failures)
 	var group_ids := _validate_groups(candidate.unit_groups, world, failures)
-	var objective_ids := _validate_objectives(candidate.objectives, failures)
+	var objective_ids := _validate_objectives(candidate.objectives, region_ids, failures)
+	var tutorial_ids := _validate_tutorials(candidate.get("tutorials", []), region_ids, failures)
 	var cinematic_ids := _validate_cinematics(candidate.cinematics, region_ids, group_ids, world, failures)
 	var sequence_ids := _ids(candidate.sequences, "sequence_id", "sequences", failures)
-	_validate_sequences(candidate.sequences, region_ids, group_ids, objective_ids, cinematic_ids, sequence_ids, failures)
+	for tutorial in candidate.get("tutorials", []):
+		if tutorial is Dictionary and tutorial.has("gates_sequence_id") and not sequence_ids.has(tutorial.gates_sequence_id): failures.append("scenario.json tutorial references unknown gated sequence")
+	_validate_sequences(candidate.sequences, region_ids, group_ids, objective_ids, _objective_steps(candidate.objectives), tutorial_ids, cinematic_ids, sequence_ids, failures)
 	_validate_sequence_cycles(candidate.sequences, sequence_ids, failures)
 	return failures
 
 
 func canonical_text() -> String:
 	var normalized := data.duplicate(true)
-	for pair in [["regions","region_id"],["unit_groups","group_id"],["objectives","objective_id"],["cinematics","cinematic_id"],["sequences","sequence_id"]]:
+	for pair in [["regions","region_id"],["unit_groups","group_id"],["objectives","objective_id"],["tutorials","tutorial_id"],["cinematics","cinematic_id"],["sequences","sequence_id"]]:
+		if not normalized.has(pair[0]): continue
 		normalized[pair[0]].sort_custom(func(a, b): return a[pair[1]] < b[pair[1]])
 	return _canonical_json(normalized) + "\n"
 
@@ -232,13 +321,31 @@ func _validate_groups(values: Array, world: Dictionary, failures: Array[String])
 	return ids
 
 
-func _validate_objectives(values: Array, failures: Array[String]) -> Dictionary:
+func _validate_objectives(values: Array, regions: Dictionary, failures: Array[String]) -> Dictionary:
 	var ids := _ids(values, "objective_id", "objectives", failures)
 	for index in values.size():
 		var value = values[index]; var context := "scenario.json.objectives[%d]" % index
 		if not value is Dictionary: continue
-		_exact(value, ["objective_id","title","kind","initial_state"], context, failures)
+		_exact_optional(value, ["objective_id","title","kind","initial_state"], ["steps"], context, failures)
 		if value.get("kind") not in ["main","optional"] or value.get("initial_state") not in ["hidden","active"]: failures.append("%s has invalid kind or initial state" % context)
+		var step_ids := {}
+		for step in value.get("steps", []):
+			if not step is Dictionary: failures.append("%s.steps must contain objects" % context); continue
+			_exact_optional(step,["step_id","title"],["checkpoint_region_id"],context+".steps",failures)
+			if not _valid_id(step.get("step_id")) or step_ids.has(step.get("step_id")): failures.append("%s has invalid or duplicate step ID" % context)
+			if step.has("checkpoint_region_id") and not regions.has(step.checkpoint_region_id): failures.append("%s step references unknown checkpoint region" % context)
+			step_ids[step.get("step_id")]=true
+	return ids
+
+
+func _validate_tutorials(values: Array, regions: Dictionary, failures: Array[String]) -> Dictionary:
+	var ids:=_ids(values,"tutorial_id","tutorials",failures)
+	for index in values.size():
+		var value=values[index];var context:="scenario.json.tutorials[%d]"%index
+		if not value is Dictionary:continue
+		_exact_optional(value,["tutorial_id","text","control","indicator","acknowledgement"],["region_id","highlight","gates_sequence_id"],context,failures)
+		if value.get("control") not in ["select","move","camera","group","attack","ability"] or value.get("indicator") not in ["viewport","world","both"] or value.get("acknowledgement") not in ["automatic","input"]:failures.append("%s has invalid guidance settings"%context)
+		if value.has("region_id") and not regions.has(value.region_id):failures.append("%s references unknown region"%context)
 	return ids
 
 
@@ -272,7 +379,7 @@ func _validate_cinematic_step(step, context: String, regions: Dictionary, groups
 			if not _valid_id(step.get("audio_id")) or float(step.get("volume", -1)) < 0 or step.get("policy") not in ["mix","replace","stop"]: failures.append("%s has invalid audio settings" % context)
 
 
-func _validate_sequences(values: Array, regions: Dictionary, groups: Dictionary, objectives: Dictionary, cinematics: Dictionary, sequences: Dictionary, failures: Array[String]) -> void:
+func _validate_sequences(values: Array, regions: Dictionary, groups: Dictionary, objectives: Dictionary, objective_steps: Dictionary, tutorials: Dictionary, cinematics: Dictionary, sequences: Dictionary, failures: Array[String]) -> void:
 	for index in values.size():
 		var value = values[index]; var context := "scenario.json.sequences[%d]" % index
 		if not value is Dictionary: continue
@@ -280,7 +387,7 @@ func _validate_sequences(values: Array, regions: Dictionary, groups: Dictionary,
 		if not value.get("enabled") is bool or not value.get("one_shot") is bool or not value.get("conditions") is Array or not value.get("actions") is Array or value.get("actions", []).is_empty(): failures.append("%s has invalid execution fields" % context); continue
 		_validate_event(value.get("event"), context + ".event", regions, groups, objectives, sequences, failures)
 		for offset in value.conditions.size(): _validate_condition(value.conditions[offset], "%s.conditions[%d]" % [context, offset], groups, objectives, sequences, failures)
-		for offset in value.actions.size(): _validate_action(value.actions[offset], "%s.actions[%d]" % [context, offset], regions, groups, objectives, cinematics, failures)
+		for offset in value.actions.size(): _validate_action(value.actions[offset], "%s.actions[%d]" % [context, offset], regions, groups, objectives, objective_steps, tutorials, cinematics, failures)
 
 
 func _validate_event(value, context: String, regions: Dictionary, groups: Dictionary, objectives: Dictionary, sequences: Dictionary, failures: Array[String]) -> void:
@@ -303,12 +410,15 @@ func _validate_condition(value, context: String, groups: Dictionary, objectives:
 	if value.type in ["group_alive","sequence_has_run"] and not value.get("value") is bool: failures.append("%s.value must be boolean" % context)
 
 
-func _validate_action(value, context: String, regions: Dictionary, groups: Dictionary, objectives: Dictionary, cinematics: Dictionary, failures: Array[String]) -> void:
+func _validate_action(value, context: String, regions: Dictionary, groups: Dictionary, objectives: Dictionary, objective_steps: Dictionary, tutorials: Dictionary, cinematics: Dictionary, failures: Array[String]) -> void:
 	if not value is Dictionary or value.get("type") not in ACTIONS: failures.append("%s has an unsupported action" % context); return
-	var keys: Array = {"show_message":["type","message_id","text","duration_s"],"set_objective":["type","objective_id","state"],"set_ownership":["type","group_id","owner_id"],"order_group":["type","group_id","order","target_region_id"],"set_encounter":["type","group_id","state","behavior","leash_region_id"],"grant_reward":["type","group_id","reward_id"],"play_cinematic":["type","cinematic_id"],"complete_scenario":["type","result"]}[value.type]
+	var keys: Array = {"show_message":["type","message_id","text","duration_s"],"show_tutorial":["type","tutorial_id"],"set_objective":["type","objective_id","state"],"set_objective_step":["type","objective_id","step_id","state"],"set_ownership":["type","group_id","owner_id"],"order_group":["type","group_id","order","target_region_id"],"set_encounter":["type","group_id","state","behavior","leash_region_id"],"grant_reward":["type","group_id","reward_id"],"play_cinematic":["type","cinematic_id"],"complete_scenario":["type","result"]}[value.type]
 	_exact(value, keys, context, failures)
 	if value.type == "show_message" and (not _valid_id(value.get("message_id")) or not value.get("text") is String or float(value.get("duration_s", 0)) <= 0): failures.append("%s has invalid message fields" % context)
+	if value.type == "show_tutorial" and not tutorials.has(value.get("tutorial_id")):failures.append("%s has unresolved tutorial"%context)
 	if value.type == "set_objective" and (not objectives.has(value.get("objective_id")) or value.get("state") not in ["hidden","active","completed","failed"]): failures.append("%s has unresolved objective or state" % context)
+	if value.type == "set_objective_step":
+		if not objective_steps.get(value.get("objective_id"), {}).has(value.get("step_id")) or value.get("state") not in ["active","completed"]: failures.append("%s has unresolved objective step or state" % context)
 	if value.type in ["set_ownership","grant_reward"] and not groups.has(value.get("group_id")): failures.append("%s has unresolved group" % context)
 	if value.type == "order_group" and (not groups.has(value.get("group_id")) or not regions.has(value.get("target_region_id")) or value.get("order") not in ["move","attack_move"]): failures.append("%s has invalid group order" % context)
 	if value.type == "set_encounter" and (not groups.has(value.get("group_id")) or not regions.has(value.get("leash_region_id")) or value.get("state") not in ["inactive","active"] or value.get("behavior") not in ["guard","sleep","patrol","attack","leash"]): failures.append("%s has invalid encounter settings" % context)
@@ -341,6 +451,17 @@ func _ids(values: Array, field: String, collection: String, failures: Array[Stri
 		var id = values[index].get(field)
 		if not _valid_id(id) or result.has(id): failures.append("scenario.json.%s has invalid or duplicate %s '%s'" % [collection, field, id])
 		else: result[id] = true
+	return result
+
+
+func _objective_steps(values: Array) -> Dictionary:
+	var result := {}
+	for objective in values:
+		if not objective is Dictionary: continue
+		var steps := {}
+		for step in objective.get("steps", []):
+			if step is Dictionary: steps[step.get("step_id")] = true
+		result[objective.get("objective_id")] = steps
 	return result
 
 

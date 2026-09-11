@@ -93,6 +93,13 @@ var sequence_action_type: OptionButton
 var sequence_conditions: ItemList
 var sequence_actions: ItemList
 var sequence_signature: Label
+var guidance_dialog: Window
+var objective_list: ItemList
+var objective_step_list: ItemList
+var objective_fields: Dictionary = {}
+var tutorial_list: ItemList
+var tutorial_fields: Dictionary = {}
+var guidance_preview: RichTextLabel
 var pending_after_save: Callable
 var definition_list: ItemList
 var definition_id_field: LineEdit
@@ -125,6 +132,7 @@ func _ready() -> void:
 	_build_workflow_editor()
 	_build_scenario_editor()
 	_build_sequence_editor()
+	_build_guidance_editor()
 	_build_object_editor()
 	_build_terrain_editor()
 	_build_package_dialogs()
@@ -795,6 +803,7 @@ func _build_scenario_editor() -> void:
 	scenario_fields.scenario_id.editable = false
 	_add_button(form, "Create Scenario", _create_scenario)
 	_add_button(form, "Apply Scenario Details", _apply_scenario_metadata)
+	_add_button(form, "Open Objectives & Guidance…", show_guidance_editor)
 	_add_button(form, "Open Sequences…", show_sequence_editor)
 	_add_button(form, "Remove Scenario…", func(): scenario_remove_confirmation.popup_centered())
 	var divider := HSeparator.new(); form.add_child(divider)
@@ -844,6 +853,133 @@ func _build_sequence_editor() -> void:
 	_add_button(actions_box,"Add Action",_add_sequence_action); _add_button(actions_box,"Move Action Up",func():_move_sequence_action(-1)); _add_button(actions_box,"Move Action Down",func():_move_sequence_action(1)); _add_button(actions_box,"Remove Action",_remove_sequence_action)
 	_add_button(form,"Validate Flow",_validate_sequence_flow)
 	_update_sequence_signature("event")
+
+
+func _build_guidance_editor() -> void:
+	guidance_dialog=Window.new();guidance_dialog.title="Scenario Editor — Objectives & Guidance";guidance_dialog.size=Vector2i(760,840);guidance_dialog.close_requested.connect(guidance_dialog.hide);add_child(guidance_dialog)
+	var scroll:=ScrollContainer.new();scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT);scroll.offset_left=18;scroll.offset_top=18;scroll.offset_right=-18;scroll.offset_bottom=-18;guidance_dialog.add_child(scroll)
+	var form:=VBoxContainer.new();form.size_flags_horizontal=Control.SIZE_EXPAND_FILL;scroll.add_child(form)
+	var help:=Label.new();help.text="Build the mission path as ordered objective steps. A step may point to a checkpoint region. Reusable tutorial prompts can mark the world or viewport and are shown by typed sequence actions.";help.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;form.add_child(help)
+	var heading:=Label.new();heading.text="Objectives";form.add_child(heading)
+	objective_list=ItemList.new();objective_list.custom_minimum_size.y=115;objective_list.item_selected.connect(_load_objective);form.add_child(objective_list)
+	for field in ["objective_id","title","kind","initial_state","step_id","step_title","checkpoint_region_id"]:objective_fields[field]=_add_field(form,field.replace("_"," ").capitalize())
+	objective_fields.kind.text="main";objective_fields.initial_state.text="active"
+	_add_button(form,"Add Objective",_add_objective);_add_button(form,"Update Selected Objective",_update_objective);_add_button(form,"Delete Selected Objective",_delete_objective)
+	objective_step_list=ItemList.new();objective_step_list.custom_minimum_size.y=105;form.add_child(objective_step_list)
+	_add_button(form,"Add Step",_add_objective_step);_add_button(form,"Move Step Up",func():_move_objective_step(-1));_add_button(form,"Move Step Down",func():_move_objective_step(1));_add_button(form,"Delete Selected Step",_delete_objective_step)
+	form.add_child(HSeparator.new());heading=Label.new();heading.text="Tutorial guidance";form.add_child(heading)
+	tutorial_list=ItemList.new();tutorial_list.custom_minimum_size.y=115;tutorial_list.item_selected.connect(_load_tutorial);form.add_child(tutorial_list)
+	for field in ["tutorial_id","text","control","indicator","acknowledgement","region_id","highlight","gates_sequence_id"]:tutorial_fields[field]=_add_field(form,field.replace("_"," ").capitalize())
+	tutorial_fields.control.text="move";tutorial_fields.indicator.text="both";tutorial_fields.acknowledgement.text="input"
+	_add_button(form,"Add Tutorial",_add_tutorial);_add_button(form,"Update Selected Tutorial",_update_tutorial);_add_button(form,"Delete Selected Tutorial",_delete_tutorial)
+	_add_button(form,"Preview Mission Guidance",_preview_guidance)
+	guidance_preview=RichTextLabel.new();guidance_preview.fit_content=true;guidance_preview.custom_minimum_size.y=110;guidance_preview.bbcode_enabled=false;form.add_child(guidance_preview)
+
+
+func show_guidance_editor()->void:
+	if package.scenario==null:status("Create a scenario before authoring objectives");return
+	_refresh_guidance();guidance_dialog.popup_centered();status("Objectives and tutorial guidance workspace")
+
+
+func _refresh_guidance()->void:
+	objective_list.clear();objective_step_list.clear();tutorial_list.clear()
+	if package.scenario==null:return
+	for objective in package.scenario.data.objectives:
+		objective_list.add_item("%s  [%s, %s]"%[objective.title,objective.kind,objective.initial_state]);objective_list.set_item_metadata(objective_list.item_count-1,objective.objective_id)
+	for tutorial in package.scenario.data.get("tutorials",[]):
+		tutorial_list.add_item("%s  [%s → %s]"%[tutorial.tutorial_id,tutorial.control,tutorial.indicator]);tutorial_list.set_item_metadata(tutorial_list.item_count-1,tutorial.tutorial_id)
+
+
+func _selected_objective_id()->String:
+	var selected:=objective_list.get_selected_items();return "" if selected.is_empty() else objective_list.get_item_metadata(selected[0])
+
+
+func _load_objective(index:int)->void:
+	var objective:Dictionary=package.scenario._find(package.scenario.data.objectives,"objective_id",objective_list.get_item_metadata(index));objective_fields.objective_id.text=objective.objective_id;objective_fields.objective_id.editable=false;objective_fields.title.text=objective.title;objective_fields.kind.text=objective.kind;objective_fields.initial_state.text=objective.initial_state;objective_step_list.clear()
+	for step in objective.get("steps",[]):objective_step_list.add_item("%s  %s%s"%[step.step_id,step.title,"  @ "+step.checkpoint_region_id if step.has("checkpoint_region_id") else ""]);objective_step_list.set_item_metadata(objective_step_list.item_count-1,step.step_id)
+
+
+func _add_objective()->void:
+	if package.scenario.add_objective(objective_fields.objective_id.text,objective_fields.title.text,objective_fields.kind.text,objective_fields.initial_state.text,package.world):objective_fields.objective_id.editable=true;_refresh_guidance();refresh_all();status("Objective added")
+	else:package.errors=package.scenario.errors;show_errors()
+
+
+func _update_objective()->void:
+	var id:=_selected_objective_id();if id.is_empty():status("Select an objective");return
+	if package.scenario.update_objective(id,{"title":objective_fields.title.text,"kind":objective_fields.kind.text,"initial_state":objective_fields.initial_state.text},package.world):_refresh_guidance();refresh_all();status("Objective updated")
+	else:package.errors=package.scenario.errors;show_errors()
+
+
+func _delete_objective()->void:
+	var id:=_selected_objective_id();if id.is_empty():status("Select an objective");return
+	if package.scenario.delete_objective(id,package.world):objective_fields.objective_id.editable=true;_refresh_guidance();refresh_all();status("Objective deleted")
+	else:package.errors=package.scenario.errors;show_errors()
+
+
+func _add_objective_step()->void:
+	var id:=_selected_objective_id();if id.is_empty():status("Select an objective");return
+	if package.scenario.add_objective_step(id,objective_fields.step_id.text,objective_fields.step_title.text,objective_fields.checkpoint_region_id.text,package.world):_refresh_guidance();_reselect_objective(id);refresh_all();status("Objective step added")
+	else:package.errors=package.scenario.errors;show_errors()
+
+
+func _move_objective_step(direction:int)->void:
+	var id:=_selected_objective_id();var selected:=objective_step_list.get_selected_items();if id.is_empty() or selected.is_empty():status("Select an objective step");return
+	if package.scenario.move_objective_step(id,selected[0],direction,package.world):_refresh_guidance();_reselect_objective(id);objective_step_list.select(clampi(selected[0]+direction,0,objective_step_list.item_count-1));refresh_all()
+	else:status("Step is already at that edge")
+
+
+func _delete_objective_step()->void:
+	var id:=_selected_objective_id();var selected:=objective_step_list.get_selected_items();if id.is_empty() or selected.is_empty():status("Select an objective step");return
+	var step_id:String=objective_step_list.get_item_metadata(selected[0])
+	if package.scenario.delete_objective_step(id,step_id,package.world):_refresh_guidance();_reselect_objective(id);refresh_all();status("Objective step deleted")
+	else:package.errors=package.scenario.errors;show_errors()
+
+
+func _reselect_objective(id:String)->void:
+	for index in objective_list.item_count:
+		if objective_list.get_item_metadata(index)==id:objective_list.select(index);_load_objective(index);return
+
+
+func _tutorial_from_form()->Dictionary:
+	var value:={"tutorial_id":tutorial_fields.tutorial_id.text,"text":tutorial_fields.text.text,"control":tutorial_fields.control.text,"indicator":tutorial_fields.indicator.text,"acknowledgement":tutorial_fields.acknowledgement.text}
+	for key in ["region_id","highlight","gates_sequence_id"]:
+		if not tutorial_fields[key].text.is_empty():value[key]=tutorial_fields[key].text
+	return value
+
+
+func _add_tutorial()->void:
+	if package.scenario.add_tutorial(_tutorial_from_form(),package.world):tutorial_fields.tutorial_id.editable=true;_refresh_guidance();refresh_all();status("Tutorial guidance added")
+	else:package.errors=package.scenario.errors;show_errors()
+
+
+func _load_tutorial(index:int)->void:
+	var tutorial:Dictionary=package.scenario._find(package.scenario.data.get("tutorials",[]),"tutorial_id",tutorial_list.get_item_metadata(index));tutorial_fields.tutorial_id.text=tutorial.tutorial_id;tutorial_fields.tutorial_id.editable=false
+	for key in ["text","control","indicator","acknowledgement","region_id","highlight","gates_sequence_id"]:tutorial_fields[key].text=str(tutorial.get(key,""))
+
+
+func _update_tutorial()->void:
+	var selected:=tutorial_list.get_selected_items();if selected.is_empty():status("Select tutorial guidance");return
+	var id:String=tutorial_list.get_item_metadata(selected[0]);var changes:=_tutorial_from_form();changes.erase("tutorial_id")
+	if package.scenario.update_tutorial(id,changes,package.world):_refresh_guidance();refresh_all();status("Tutorial guidance updated")
+	else:package.errors=package.scenario.errors;show_errors()
+
+
+func _delete_tutorial()->void:
+	var selected:=tutorial_list.get_selected_items();if selected.is_empty():status("Select tutorial guidance");return
+	var id:String=tutorial_list.get_item_metadata(selected[0])
+	if package.scenario.delete_tutorial(id,package.world):tutorial_fields.tutorial_id.editable=true;_refresh_guidance();refresh_all();status("Tutorial guidance deleted")
+	else:package.errors=package.scenario.errors;show_errors()
+
+
+func _preview_guidance()->void:
+	var lines:Array[String]=["OBJECTIVE FLOW (ordered; ↑/↓ buttons are keyboard-focusable)"]
+	for objective in package.scenario.data.objectives:
+		lines.append("%s [%s / %s]"%[objective.title,objective.kind.to_upper(),objective.initial_state.to_upper()])
+		for index in objective.get("steps",[]).size():
+			var step:Dictionary=objective.steps[index];lines.append("  %d. %s%s"%[index+1,step.title," → "+step.checkpoint_region_id if step.has("checkpoint_region_id") else ""])
+	lines.append("TUTORIAL CUES (text and shape/location labels; never color alone)")
+	for tutorial in package.scenario.data.get("tutorials",[]):lines.append("[%s] %s — %s; acknowledge=%s%s"%[tutorial.indicator.to_upper(),tutorial.text,tutorial.control,tutorial.acknowledgement,"; region="+tutorial.region_id if tutorial.has("region_id") else ""])
+	guidance_preview.text="\n".join(lines);status("Guidance preview refreshed with non-color labels")
 
 
 func show_sequence_editor() -> void:
@@ -960,7 +1096,9 @@ func _action_from_form()->Dictionary:
 	var type:String=sequence_action_type.get_item_metadata(sequence_action_type.selected)
 	match type:
 		"show_message":return {"type":type,"message_id":sequence_fields.a.text,"text":sequence_fields.text.text,"duration_s":maxf(0.1,float(sequence_fields.number.text))}
+		"show_tutorial":return {"type":type,"tutorial_id":sequence_fields.a.text}
 		"set_objective":return {"type":type,"objective_id":sequence_fields.a.text,"state":sequence_fields.b.text}
+		"set_objective_step":return {"type":type,"objective_id":sequence_fields.a.text,"step_id":sequence_fields.b.text,"state":sequence_fields.c.text}
 		"set_ownership":return {"type":type,"group_id":sequence_fields.a.text,"owner_id":sequence_fields.b.text}
 		"order_group":return {"type":type,"group_id":sequence_fields.a.text,"order":sequence_fields.b.text,"target_region_id":sequence_fields.c.text}
 		"set_encounter":return {"type":type,"group_id":sequence_fields.a.text,"state":sequence_fields.b.text,"behavior":sequence_fields.c.text,"leash_region_id":sequence_fields.text.text}
@@ -971,9 +1109,9 @@ func _action_from_form()->Dictionary:
 
 func _load_typed_references(value:Dictionary)->void:
 	var ordered:=[]
-	for key in ["group_id","objective_id","sequence_id","message_id","cinematic_id","result"]:
+	for key in ["group_id","objective_id","tutorial_id","sequence_id","message_id","cinematic_id","result"]:
 		if value.has(key):ordered.append(str(value[key]))
-	for key in ["region_id","state","owner_id","reward_id","order"]:
+	for key in ["step_id","region_id","state","owner_id","reward_id","order"]:
 		if value.has(key):ordered.append(str(value[key]))
 	for index in 3:sequence_fields[["a","b","c"][index]].text=ordered[index] if index<ordered.size() else ""
 	if value.has("text"):sequence_fields.text.text=value.text
@@ -989,7 +1127,7 @@ func _typed_summary(value:Dictionary)->String:
 
 func _update_sequence_signature(kind:String)->void:
 	if sequence_signature==null:return
-	var signatures:={"event":{"scenario_start":"no references","unit_enters_region":"A=group, B=region","unit_died":"A=group","objective_changed":"A=objective, B=state","sequence_completed":"A=sequence"},"condition":{"objective_is":"A=objective, B=state","group_alive":"A=group, B=true/false","group_owned_by":"A=group, B=owner","sequence_has_run":"A=sequence, B=true/false"},"action":{"show_message":"A=message ID, Text, Number=duration","set_objective":"A=objective, B=state","set_ownership":"A=group, B=owner","order_group":"A=group, B=move/attack_move, C=region","set_encounter":"A=group, B=inactive/active, C=behavior, Text=leash region","grant_reward":"A=group, B=reward","play_cinematic":"A=cinematic","complete_scenario":"A=victory/failure"}}
+	var signatures:={"event":{"scenario_start":"no references","unit_enters_region":"A=group, B=region","unit_died":"A=group","objective_changed":"A=objective, B=state","sequence_completed":"A=sequence"},"condition":{"objective_is":"A=objective, B=state","group_alive":"A=group, B=true/false","group_owned_by":"A=group, B=owner","sequence_has_run":"A=sequence, B=true/false"},"action":{"show_message":"A=message ID, Text, Number=duration","show_tutorial":"A=tutorial guidance","set_objective":"A=objective, B=state","set_objective_step":"A=objective, B=step, C=active/completed","set_ownership":"A=group, B=owner","order_group":"A=group, B=move/attack_move, C=region","set_encounter":"A=group, B=inactive/active, C=behavior, Text=leash region","grant_reward":"A=group, B=reward","play_cinematic":"A=cinematic","complete_scenario":"A=victory/failure"}}
 	var control:OptionButton={"event":sequence_event_type,"condition":sequence_condition_type,"action":sequence_action_type}[kind];var type:String=control.get_item_metadata(control.selected);sequence_signature.text="%s: %s"%[type,signatures[kind][type]]
 
 
@@ -1961,9 +2099,11 @@ func unique_definition_id(base: String) -> String:
 
 
 func perform_undo() -> void:
-	if package.scenario != null and scenario_dialog.visible and package.scenario.can_undo() and package.scenario.undo():
+	if package.scenario != null and (scenario_dialog.visible or guidance_dialog.visible or sequence_dialog.visible) and package.scenario.can_undo() and package.scenario.undo():
 		selected_instance_id = ""
 		_refresh_scenario_form()
+		if guidance_dialog.visible:_refresh_guidance()
+		if sequence_dialog.visible:_refresh_sequence_list()
 		refresh_all()
 	elif package.terrain != null and package.terrain.can_undo() and package.terrain.undo():
 		selected_instance_id = ""
@@ -1974,9 +2114,11 @@ func perform_undo() -> void:
 
 
 func perform_redo() -> void:
-	if package.scenario != null and scenario_dialog.visible and package.scenario.can_redo() and package.scenario.redo():
+	if package.scenario != null and (scenario_dialog.visible or guidance_dialog.visible or sequence_dialog.visible) and package.scenario.can_redo() and package.scenario.redo():
 		selected_instance_id = ""
 		_refresh_scenario_form()
+		if guidance_dialog.visible:_refresh_guidance()
+		if sequence_dialog.visible:_refresh_sequence_list()
 		refresh_all()
 	elif package.terrain != null and package.terrain.can_redo() and package.terrain.redo():
 		selected_instance_id = ""

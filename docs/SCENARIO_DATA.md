@@ -8,7 +8,7 @@
 
 - UTF-8 JSON with one trailing newline.
 - IDs use `^[a-z][a-z0-9_]*$` and are unique within their collection.
-- Saves sort regions, groups, objectives, cinematics, and sequences by ID. Step order inside a sequence is authored and meaningful.
+- Saves sort regions, groups, objectives, tutorials, cinematics, and sequences by ID. Objective-step and sequence-step order is authored and meaningful.
 - Coordinates use the terrain contract: +X east, +Y up, +Z south. Region points are world-space metres.
 - Equal-frame events execute by sequence ID, then action index. A one-shot sequence can fire at most once.
 
@@ -16,7 +16,8 @@
 
 - Regions: point, rectangle, or path geometry.
 - Unit groups: stable references to placed unit instance IDs.
-- Objectives: main or optional, initially hidden or active.
+- Objectives: main or optional, initially hidden or active, with ordered steps and optional checkpoint regions.
+- Tutorials: reusable control guidance with viewport/world indicators, optional highlights, and optional sequence gates.
 - Cinematics: ordered typed steps; v1 supports dialogue, camera, unit cue, and audio.
 - Sequences: one event, typed conditions, and ordered actions.
 
@@ -30,7 +31,7 @@
 
 ## Supported actions
 
-`show_message`, `set_objective`, `set_ownership`, `order_group`, `set_encounter`, `grant_reward`, `play_cinematic`, `complete_scenario`.
+`show_message`, `show_tutorial`, `set_objective`, `set_objective_step`, `set_ownership`, `order_group`, `set_encounter`, `grant_reward`, `play_cinematic`, `complete_scenario`.
 
 Payload keys are strict and type-specific. References must resolve before save or Test World. Cycles through `sequence_completed` are rejected. Unsupported versions or vocabulary are errors, never ignored.
 
