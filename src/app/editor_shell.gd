@@ -106,6 +106,12 @@ var group_fields:Dictionary={}
 var encounter_list:ItemList
 var encounter_fields:Dictionary={}
 var encounter_preview:RichTextLabel
+var cinematic_dialog:Window
+var cinematic_list:ItemList
+var cinematic_step_list:ItemList
+var cinematic_fields:Dictionary={}
+var cinematic_step_type:OptionButton
+var cinematic_preview:RichTextLabel
 var pending_after_save: Callable
 var definition_list: ItemList
 var definition_id_field: LineEdit
@@ -147,6 +153,7 @@ func _ready() -> void:
 	_build_sequence_editor()
 	_build_guidance_editor()
 	_build_encounter_editor()
+	_build_cinematic_editor()
 	_build_object_editor()
 	_build_terrain_editor()
 	_build_package_dialogs()
@@ -814,11 +821,13 @@ func _build_scenario_editor() -> void:
 	var form := VBoxContainer.new(); form.size_flags_horizontal = Control.SIZE_EXPAND_FILL; scroll.add_child(form)
 	var help := Label.new(); help.text = "Scenario data is portable and saved with the world. Regions use world metres: point (one position), rectangle (opposite corners), or path (ordered endpoints in this increment). IDs become stable references."; help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; form.add_child(help)
 	for field in ["scenario_id","title","description","player_faction_id"]: scenario_fields[field] = _add_field(form, field.replace("_", " ").capitalize())
+	for field in ["fog_enabled","explored_radius_m","hidden_by_default"]:scenario_fields[field]=_add_field(form,field.replace("_"," ").capitalize())
 	scenario_fields.scenario_id.editable = false
 	_add_button(form, "Create Scenario", _create_scenario)
 	_add_button(form, "Apply Scenario Details", _apply_scenario_metadata)
 	_add_button(form, "Open Objectives & Guidance…", show_guidance_editor)
 	_add_button(form, "Open Groups & Encounters…", show_encounter_editor)
+	_add_button(form, "Open Cinematics…", show_cinematic_editor)
 	_add_button(form, "Open Sequences…", show_sequence_editor)
 	_add_button(form, "Remove Scenario…", func(): scenario_remove_confirmation.popup_centered())
 	var divider := HSeparator.new(); form.add_child(divider)
@@ -904,6 +913,117 @@ func _build_encounter_editor()->void:
 	encounter_fields.initial_state.text="inactive";encounter_fields.behavior.text="sleep";encounter_fields.completion.text="all_defeated"
 	_add_button(form,"Add Encounter",_add_encounter);_add_button(form,"Update Selected Encounter",_update_encounter);_add_button(form,"Delete Selected Encounter",_delete_encounter);_add_button(form,"Preview Staging",_preview_encounters)
 	encounter_preview=RichTextLabel.new();encounter_preview.fit_content=true;encounter_preview.custom_minimum_size.y=120;form.add_child(encounter_preview)
+
+
+func _build_cinematic_editor()->void:
+	cinematic_dialog=Window.new();cinematic_dialog.title="Scenario Editor — Cinematics";cinematic_dialog.size=Vector2i(760,840);cinematic_dialog.close_requested.connect(cinematic_dialog.hide);add_child(cinematic_dialog)
+	var scroll:=ScrollContainer.new();scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT);scroll.offset_left=18;scroll.offset_top=18;scroll.offset_right=-18;scroll.offset_bottom=-18;cinematic_dialog.add_child(scroll)
+	var form:=VBoxContainer.new();form.size_flags_horizontal=Control.SIZE_EXPAND_FILL;scroll.add_child(form)
+	var help:=Label.new();help.text="Dialogue text is always the subtitle. Optional audio never replaces it. Select any timeline row to scrub the deterministic preview; Play starts at row 1 and Skip jumps to the end when allowed.";help.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;form.add_child(help)
+	cinematic_list=ItemList.new();cinematic_list.custom_minimum_size.y=110;cinematic_list.item_selected.connect(_load_cinematic);form.add_child(cinematic_list)
+	for field in ["cinematic_id","skippable","letterbox","control_lock","a","b","c","text","number","number_2"]:cinematic_fields[field]=_add_field(form,field.replace("_"," ").capitalize())
+	cinematic_fields.skippable.text="true";cinematic_fields.letterbox.text="true";cinematic_fields.control_lock.text="true";cinematic_fields.number.text="3";cinematic_fields.number_2.text="0.5"
+	_add_button(form,"Add Cinematic",_add_cinematic);_add_button(form,"Update Playback Flags",_update_cinematic);_add_button(form,"Delete Cinematic",_delete_cinematic)
+	cinematic_step_type=OptionButton.new()
+	for type in ScenarioDocumentScript.CINEMATIC_STEPS:
+		cinematic_step_type.add_item(type.replace("_"," ").capitalize());cinematic_step_type.set_item_metadata(cinematic_step_type.item_count-1,type)
+	form.add_child(cinematic_step_type)
+	cinematic_step_type.select(0)
+	var signature:=Label.new();signature.text="Dialogue: A=speaker, B=optional audio, Text=subtitle, Number=duration | Camera: A=region, Number=duration, Number 2=blend | Unit cue: A=group, B=cue, C=target region | Audio: A=audio, B=mix/replace/stop, Number=volume";signature.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;form.add_child(signature)
+	cinematic_step_list=ItemList.new();cinematic_step_list.custom_minimum_size.y=150;cinematic_step_list.item_selected.connect(_scrub_cinematic);form.add_child(cinematic_step_list)
+	_add_button(form,"Add Timeline Step",_add_cinematic_step);_add_button(form,"Move Step Up",func():_move_cinematic_step(-1));_add_button(form,"Move Step Down",func():_move_cinematic_step(1));_add_button(form,"Delete Step",_delete_cinematic_step)
+	var playback:=HBoxContainer.new();form.add_child(playback);_add_button(playback,"Play Preview",_play_cinematic_preview);_add_button(playback,"Skip Preview",_skip_cinematic_preview);_add_button(playback,"Validate",_validate_cinematic_preview)
+	cinematic_preview=RichTextLabel.new();cinematic_preview.fit_content=true;cinematic_preview.custom_minimum_size.y=110;form.add_child(cinematic_preview)
+
+
+func show_cinematic_editor()->void:
+	if package.scenario==null:status("Create a scenario before authoring cinematics");return
+	_refresh_cinematics();cinematic_dialog.popup_centered();status("Cinematic timeline workspace")
+
+
+func _refresh_cinematics()->void:
+	cinematic_list.clear();cinematic_step_list.clear()
+	for cinematic in package.scenario.data.cinematics:cinematic_list.add_item("%s  [%s]"%[cinematic.cinematic_id,"skippable" if cinematic.skippable else "locked"]);cinematic_list.set_item_metadata(cinematic_list.item_count-1,cinematic.cinematic_id)
+
+
+func _selected_cinematic_id()->String:
+	var selected:=cinematic_list.get_selected_items();return "" if selected.is_empty() else cinematic_list.get_item_metadata(selected[0])
+
+
+func _load_cinematic(index:int)->void:
+	var cinematic:Dictionary=package.scenario._find(package.scenario.data.cinematics,"cinematic_id",cinematic_list.get_item_metadata(index));cinematic_fields.cinematic_id.text=cinematic.cinematic_id;cinematic_fields.cinematic_id.editable=false;cinematic_fields.skippable.text=str(cinematic.skippable);cinematic_fields.letterbox.text=str(cinematic.get("letterbox",false));cinematic_fields.control_lock.text=str(cinematic.get("control_lock",false));cinematic_step_list.clear()
+	for step in cinematic.steps:cinematic_step_list.add_item(package.scenario._canonical_json(step))
+
+
+func _add_cinematic()->void:
+	if package.scenario.add_cinematic(cinematic_fields.cinematic_id.text,cinematic_fields.skippable.text.to_lower()=="true",cinematic_fields.letterbox.text.to_lower()=="true",cinematic_fields.control_lock.text.to_lower()=="true",package.world):cinematic_fields.cinematic_id.editable=true;_refresh_cinematics();refresh_all();status("Cinematic added")
+	else:package.errors=package.scenario.errors;show_errors()
+
+
+func _update_cinematic()->void:
+	var id:=_selected_cinematic_id();if id.is_empty():status("Select a cinematic");return
+	if package.scenario.update_cinematic(id,{"skippable":cinematic_fields.skippable.text.to_lower()=="true","letterbox":cinematic_fields.letterbox.text.to_lower()=="true","control_lock":cinematic_fields.control_lock.text.to_lower()=="true"},package.world):_refresh_cinematics();refresh_all();status("Cinematic flags updated")
+	else:package.errors=package.scenario.errors;show_errors()
+
+
+func _delete_cinematic()->void:
+	var id:=_selected_cinematic_id();if id.is_empty():status("Select a cinematic");return
+	if package.scenario.delete_cinematic(id,package.world):cinematic_fields.cinematic_id.editable=true;_refresh_cinematics();refresh_all();status("Cinematic deleted")
+	else:package.errors=package.scenario.errors;show_errors()
+
+
+func _cinematic_step_from_form()->Dictionary:
+	var type:String=ScenarioDocumentScript.CINEMATIC_STEPS[cinematic_step_type.selected] if cinematic_step_type.selected>=0 and cinematic_step_type.selected<ScenarioDocumentScript.CINEMATIC_STEPS.size() else ""
+	match type:
+		"dialogue":
+			var step:={"type":type,"speaker_instance_id":cinematic_fields.a.text,"text":cinematic_fields.text.text,"duration_s":float(cinematic_fields.number.text)}
+			if not cinematic_fields.b.text.is_empty():step.audio_id=cinematic_fields.b.text
+			return step
+		"camera":return {"type":type,"region_id":cinematic_fields.a.text,"duration_s":float(cinematic_fields.number.text),"blend_s":float(cinematic_fields.number_2.text)}
+		"unit_cue":return {"type":type,"group_id":cinematic_fields.a.text,"cue":cinematic_fields.b.text,"target_region_id":cinematic_fields.c.text}
+		_:return {"type":type,"audio_id":cinematic_fields.a.text,"volume":float(cinematic_fields.number.text),"policy":cinematic_fields.b.text}
+	return {}
+
+
+func _add_cinematic_step()->void:
+	var id:=_selected_cinematic_id();if id.is_empty():status("Select a cinematic");return
+	if package.scenario.add_cinematic_step(id,_cinematic_step_from_form(),package.world):_refresh_cinematics();_reselect_cinematic(id);refresh_all();status("Timeline step added")
+	else:package.errors=package.scenario.errors;show_errors()
+
+
+func _reselect_cinematic(id:String)->void:
+	for index in cinematic_list.item_count:
+		if cinematic_list.get_item_metadata(index)==id:cinematic_list.select(index);_load_cinematic(index);return
+
+
+func _move_cinematic_step(direction:int)->void:
+	var id:=_selected_cinematic_id();var selected:=cinematic_step_list.get_selected_items();if id.is_empty() or selected.is_empty():status("Select a timeline step");return
+	if package.scenario.move_cinematic_step(id,selected[0],direction,package.world):_refresh_cinematics();_reselect_cinematic(id);cinematic_step_list.select(clampi(selected[0]+direction,0,cinematic_step_list.item_count-1));refresh_all()
+	else:status("Timeline step is already at that edge")
+
+
+func _delete_cinematic_step()->void:
+	var id:=_selected_cinematic_id();var selected:=cinematic_step_list.get_selected_items();if id.is_empty() or selected.is_empty():status("Select a timeline step");return
+	if package.scenario.delete_cinematic_step(id,selected[0],package.world):_refresh_cinematics();_reselect_cinematic(id);refresh_all();status("Timeline step deleted")
+	else:package.errors=package.scenario.errors;show_errors()
+
+
+func _scrub_cinematic(index:int)->void:
+	var cinematic:Dictionary=package.scenario._find(package.scenario.data.cinematics,"cinematic_id",_selected_cinematic_id());var step:Dictionary=cinematic.steps[index];cinematic_preview.text="STEP %d/%d — %s\n%s"%[index+1,cinematic.steps.size(),step.type.to_upper(),step.get("text",package.scenario._canonical_json(step))];status("Cinematic preview scrubbed to step %d"%(index+1))
+
+
+func _play_cinematic_preview()->void:
+	if cinematic_step_list.item_count==0:status("Add a timeline step first");return
+	cinematic_step_list.select(0);_scrub_cinematic(0)
+
+
+func _skip_cinematic_preview()->void:
+	var cinematic:Dictionary=package.scenario._find(package.scenario.data.cinematics,"cinematic_id",_selected_cinematic_id());if cinematic.is_empty() or not cinematic.skippable:status("This cinematic is not skippable");return
+	cinematic_preview.text="SKIPPED — gameplay control restored";status("Cinematic preview skipped")
+
+
+func _validate_cinematic_preview()->void:
+	var failures:Array[String]=package.scenario.validate(package.scenario.data,package.world);status("Cinematic valid; subtitles remain available without audio" if failures.is_empty() else " | ".join(failures))
 
 
 func show_encounter_editor()->void:
@@ -1264,8 +1384,10 @@ func _refresh_scenario_form() -> void:
 		scenario_fields.title.text = ""
 		scenario_fields.description.text = ""
 		scenario_fields.player_faction_id.text = "frontier_company"
+		scenario_fields.fog_enabled.text="true";scenario_fields.explored_radius_m.text="8";scenario_fields.hidden_by_default.text="true"
 		return
 	scenario_fields.scenario_id.text = scenario.data.scenario_id; scenario_fields.title.text = scenario.data.title; scenario_fields.description.text = scenario.data.description; scenario_fields.player_faction_id.text = scenario.data.player_faction_id
+	var visibility:Dictionary=scenario.data.get("visibility",{"fog_enabled":true,"explored_radius_m":8,"hidden_by_default":true});scenario_fields.fog_enabled.text=str(visibility.fog_enabled);scenario_fields.explored_radius_m.text=str(visibility.explored_radius_m);scenario_fields.hidden_by_default.text=str(visibility.hidden_by_default)
 	var regions: Array = scenario.data.regions.duplicate(); regions.sort_custom(func(a,b): return a.region_id < b.region_id)
 	for region in regions:
 		scenario_region_list.add_item("%s  [%s]  %s" % [region.display_name, region.shape, region.region_id]); scenario_region_list.set_item_metadata(scenario_region_list.item_count - 1, region.region_id)
@@ -1281,7 +1403,7 @@ func _create_scenario() -> void:
 
 func _apply_scenario_metadata() -> void:
 	if package.scenario == null: status("Create a scenario first"); return
-	if package.scenario.update_metadata(scenario_fields.title.text, scenario_fields.description.text, scenario_fields.player_faction_id.text, package.world): refresh_all(); status("Scenario details updated")
+	if package.scenario.update_metadata(scenario_fields.title.text, scenario_fields.description.text, scenario_fields.player_faction_id.text, package.world) and package.scenario.update_visibility(scenario_fields.fog_enabled.text.to_lower()=="true",float(scenario_fields.explored_radius_m.text),scenario_fields.hidden_by_default.text.to_lower()=="true",package.world): refresh_all(); status("Scenario details and visibility updated")
 	else: package.errors = package.scenario.errors; show_errors()
 
 
@@ -2268,12 +2390,13 @@ func unique_definition_id(base: String) -> String:
 
 
 func perform_undo() -> void:
-	if package.scenario != null and (scenario_dialog.visible or guidance_dialog.visible or sequence_dialog.visible or encounter_dialog.visible) and package.scenario.can_undo() and package.scenario.undo():
+	if package.scenario != null and (scenario_dialog.visible or guidance_dialog.visible or sequence_dialog.visible or encounter_dialog.visible or cinematic_dialog.visible) and package.scenario.can_undo() and package.scenario.undo():
 		selected_instance_id = ""
 		_refresh_scenario_form()
 		if guidance_dialog.visible:_refresh_guidance()
 		if sequence_dialog.visible:_refresh_sequence_list()
 		if encounter_dialog.visible:_refresh_encounters()
+		if cinematic_dialog.visible:_refresh_cinematics()
 		refresh_all()
 	elif package.terrain != null and package.terrain.can_undo() and package.terrain.undo():
 		selected_instance_id = ""
@@ -2284,12 +2407,13 @@ func perform_undo() -> void:
 
 
 func perform_redo() -> void:
-	if package.scenario != null and (scenario_dialog.visible or guidance_dialog.visible or sequence_dialog.visible or encounter_dialog.visible) and package.scenario.can_redo() and package.scenario.redo():
+	if package.scenario != null and (scenario_dialog.visible or guidance_dialog.visible or sequence_dialog.visible or encounter_dialog.visible or cinematic_dialog.visible) and package.scenario.can_redo() and package.scenario.redo():
 		selected_instance_id = ""
 		_refresh_scenario_form()
 		if guidance_dialog.visible:_refresh_guidance()
 		if sequence_dialog.visible:_refresh_sequence_list()
 		if encounter_dialog.visible:_refresh_encounters()
+		if cinematic_dialog.visible:_refresh_cinematics()
 		refresh_all()
 	elif package.terrain != null and package.terrain.can_redo() and package.terrain.redo():
 		selected_instance_id = ""

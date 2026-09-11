@@ -11,6 +11,7 @@
     "title": { "type": "string", "minLength": 1 },
     "description": { "type": "string" },
     "player_faction_id": { "$ref": "#/$defs/id" },
+    "visibility": { "type":"object", "additionalProperties":false, "required":["fog_enabled","explored_radius_m","hidden_by_default"], "properties":{"fog_enabled":{"type":"boolean"},"explored_radius_m":{"type":"number","exclusiveMinimum":0},"hidden_by_default":{"type":"boolean"}} },
     "regions": { "type": "array", "items": { "$ref": "#/$defs/region" } },
     "unit_groups": { "type": "array", "items": { "$ref": "#/$defs/group" } },
     "objectives": { "type": "array", "items": { "$ref": "#/$defs/objective" } },
@@ -49,7 +50,7 @@
     },
     "cinematic": {
       "type":"object", "additionalProperties":false, "required":["cinematic_id","skippable","steps"],
-      "properties":{"cinematic_id":{"$ref":"#/$defs/id"},"skippable":{"type":"boolean"},"steps":{"type":"array","items":{"$ref":"#/$defs/typed"}}}
+      "properties":{"cinematic_id":{"$ref":"#/$defs/id"},"skippable":{"type":"boolean"},"letterbox":{"type":"boolean"},"control_lock":{"type":"boolean"},"steps":{"type":"array","items":{"$ref":"#/$defs/typed"}}}
     },
     "typed": {
       "type":"object", "required":["type"], "properties":{"type":{"type":"string"}}, "additionalProperties":true
