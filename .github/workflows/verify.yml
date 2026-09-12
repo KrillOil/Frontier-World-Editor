@@ -28,7 +28,7 @@ jobs:
         run: |
           set -o pipefail
           wrapper_probe="$(mktemp)"
-          if bash -c "printf '%s\n' 'T0_SUMMARY|checks=23|failures=0'; exit 7" 2>&1 | tee "$wrapper_probe"; then
+          if bash -c "printf '%s\n' 'T0_SUMMARY|checks=24|failures=0'; exit 7" 2>&1 | tee "$wrapper_probe"; then
             echo "Terrain T0 wrapper accepted a nonzero process." >&2
             exit 1
           fi
@@ -41,7 +41,7 @@ jobs:
             echo "Terrain T0 emitted a script/runtime failure." >&2
             exit 1
           fi
-          if ! grep -Fq 'T0_SUMMARY|checks=23|failures=0' "$log_file"; then
+          if ! grep -Fq 'T0_SUMMARY|checks=24|failures=0' "$log_file"; then
             echo "Terrain T0 did not reach its fail-closed terminal marker." >&2
             exit 1
           fi

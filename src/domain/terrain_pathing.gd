@@ -32,7 +32,9 @@ func reasons(x: int, z: int, layer := "movement") -> Array[String]:
 	var water_class: String=CliffWaterScript.new(terrain).water_class_at_cell(x,z)
 	if layer=="movement" and water_class=="deep": result.append("deep_water")
 	if layer=="placement" and water_class!="dry": result.append("water")
-	if _cell_has_cliff_edge(x,z): result.append("cliff_edge")
+	# Movement legality is edge-specific in can_step. A ramp cell remains usable
+	# along its authored edge while its vertical side walls stay blocked.
+	if _cell_has_cliff_edge(x,z) and (layer=="placement" or not _cell_has_ramp_edge(x,z)): result.append("cliff_edge")
 	var slope: float=_cell_slope_degrees(x,z)
 	if layer=="movement" and slope>MOVEMENT_SLOPE_DEG: result.append("steep_slope")
 	if layer=="placement" and slope>PLACEMENT_SLOPE_DEG: result.append("steep_slope")
@@ -187,11 +189,23 @@ func _cell_has_cliff_edge(x:int,z:int)->bool:
 	return false
 
 
+func _cell_has_ramp_edge(x:int,z:int)->bool:
+	var cliff_water=CliffWaterScript.new(terrain)
+	for direction in ["north","east","south","west"]:
+		if cliff_water.edge_has_ramp(x,z,direction):return true
+	return false
+
+
 func _edge_blocked(a:Vector2i,b:Vector2i)->bool:
-	var width: int=int(terrain.data.grid.width_cells)
-	if int(terrain.data.cliffs.levels[a.y*width+a.x])==int(terrain.data.cliffs.levels[b.y*width+b.x]): return false
 	var direction: String="east" if b.x>a.x else "west" if b.x<a.x else "south" if b.y>a.y else "north"
-	return not CliffWaterScript.new(terrain).edge_has_ramp(a.x,a.y,direction)
+	if CliffWaterScript.new(terrain).edge_has_ramp(a.x,a.y,direction):return false
+	var a_corners:Array[float]=terrain.cell_corner_heights(a.x,a.y);var b_corners:Array[float]=terrain.cell_corner_heights(b.x,b.y);var edge_values:Array
+	match direction:
+		"east":edge_values=[a_corners[2],a_corners[3],b_corners[0],b_corners[1]]
+		"west":edge_values=[a_corners[0],a_corners[1],b_corners[2],b_corners[3]]
+		"south":edge_values=[a_corners[1],a_corners[3],b_corners[0],b_corners[2]]
+		_:edge_values=[a_corners[0],a_corners[2],b_corners[1],b_corners[3]]
+	return not is_equal_approx(float(edge_values[0]),float(edge_values[2])) or not is_equal_approx(float(edge_values[1]),float(edge_values[3]))
 
 
 func _valid_cell(x:int,z:int)->bool:

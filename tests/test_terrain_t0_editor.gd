@@ -4,6 +4,7 @@ const SHELL := preload("res://src/app/editor_shell.tscn")
 const PACKAGE := preload("res://src/domain/world_package.gd")
 const CLIFF_WATER := preload("res://src/domain/terrain_cliff_water.gd")
 const SURFACE_PAINTER:=preload("res://src/domain/terrain_surface_painter.gd")
+const TERRAIN_PATHING:=preload("res://src/domain/terrain_pathing.gd")
 
 var failures: Array[String] = []
 var checks := 0
@@ -35,7 +36,7 @@ func _run() -> void:
 	await _check_saved_history_and_scenario_lifecycle(editor)
 	await _check_history_branch_clear(editor)
 	await _check_failed_open_preserves_session(editor)
-	_check(checks==22,"all planned T0 phases reached completion")
+	_check(checks==23,"all planned T0 phases reached completion")
 
 	print("T0_SUMMARY|checks=", checks, "|failures=", failures.size())
 	for failure in failures:
@@ -150,8 +151,8 @@ func _check_ramp_surface_parity(editor)->void:
 	_check(editor.package.save(),"Serialized-float ramp fixture saves")
 	editor.open_package(package_path);terrain=editor.package.terrain;var cliff_tools=CLIFF_WATER.new(terrain);var normalized:=cliff_tools.edge_has_ramp(3,4,"east") and cliff_tools.edge_has_ramp(4,4,"west");var lower_corners:Array[float]=terrain.cell_corner_heights(3,4);var upper_corners:Array[float]=terrain.cell_corner_heights(4,4);var corners_match:=_all_close(lower_corners,[1.5,1.5,4.0,4.0]) and _all_close(upper_corners,[4.0,4.0,4.5,4.5])
 	editor.refresh_terrain_preview();var grid:Dictionary=terrain.data.grid;var z_center:=float(grid.origin_z_m)+4.5*float(grid.cell_size_m);var lower:=Vector2(float(grid.origin_x_m)+3.5*float(grid.cell_size_m),z_center);var upper:=Vector2(float(grid.origin_x_m)+4.5*float(grid.cell_size_m),z_center);var edge:=Vector2(float(grid.origin_x_m)+4.0*float(grid.cell_size_m),z_center);var mesh=editor.world_root.get_node("TerrainPreview").mesh;var lower_mesh:=_mesh_heights_at([mesh],lower);var upper_mesh:=_mesh_heights_at([mesh],upper);var edge_mesh:=_mesh_heights_at([mesh],edge);var lower_effective:float=terrain.effective_height(lower.x,lower.y);var upper_effective:float=terrain.effective_height(upper.x,upper.y);var edge_effective:float=terrain.effective_height(edge.x,edge.y);var preview_matches:=_all_values_close(lower_mesh,lower_effective) and _all_values_close(upper_mesh,upper_effective) and _all_values_close(edge_mesh,edge_effective)
-	var original:Dictionary=terrain.data.duplicate(true);terrain.data.grid.heights_cm.fill(0);terrain.data.cliffs.levels.fill(0);terrain.data.cliffs.levels[4*width+4]=1;terrain.data.cliffs.ramps=[{"x":3,"z":4,"direction":"east"}];terrain.data.water={"enabled":true,"level_cm":100};cliff_tools=CLIFF_WATER.new(terrain);var water_contract:bool=cliff_tools.water_class_at_cell(3,4)=="shallow" and {"direction":"east","x":3,"z":4} in cliff_tools.derived_shores();editor.refresh_terrain_preview();var isolated_mesh=editor.world_root.get_node("TerrainPreview").mesh;var wall_contract:bool=_mesh_has_vertical_wall([isolated_mesh],"z",float(grid.origin_z_m)+4.0*float(grid.cell_size_m),float(grid.origin_x_m)+3.0*float(grid.cell_size_m),float(grid.origin_x_m)+4.0*float(grid.cell_size_m));terrain.data=original;editor.refresh_terrain_preview()
-	_check(normalized and corners_match and preview_matches and water_contract and wall_contract and is_equal_approx(lower_effective,2.75) and is_equal_approx(upper_effective,4.25) and is_equal_approx(edge_effective,4.0),"saved/reopened ramp coordinates, closed endpoint walls, preview, and ramp-independent water classification match the canonical contract; normalized=%s lower=%s upper=%s edge=%s"%[normalized,lower_mesh,upper_mesh,edge_mesh])
+	var original:Dictionary=terrain.data.duplicate(true);terrain.data.grid.heights_cm.fill(0);terrain.data.cliffs.levels.fill(0);terrain.data.cliffs.levels[4*width+4]=1;terrain.data.cliffs.ramps=[{"x":3,"z":4,"direction":"east"}];terrain.data.water={"enabled":true,"level_cm":100};cliff_tools=CLIFF_WATER.new(terrain);var water_contract:bool=cliff_tools.water_class_at_cell(3,4)=="shallow" and {"direction":"east","x":3,"z":4} in cliff_tools.derived_shores();editor.refresh_terrain_preview();var isolated_mesh=editor.world_root.get_node("TerrainPreview").mesh;var wall_contract:bool=_mesh_has_vertical_wall([isolated_mesh],"z",float(grid.origin_z_m)+4.0*float(grid.cell_size_m),float(grid.origin_x_m)+3.0*float(grid.cell_size_m),float(grid.origin_x_m)+4.0*float(grid.cell_size_m));var pathing=TERRAIN_PATHING.new(terrain);var pathing_contract:=true;var ramp_cases:Array=[{"direction":"east","lower":Vector2i(3,4),"upper":Vector2i(4,4),"side":Vector2i(3,3)},{"direction":"west","lower":Vector2i(4,4),"upper":Vector2i(3,4),"side":Vector2i(4,3)},{"direction":"south","lower":Vector2i(4,3),"upper":Vector2i(4,4),"side":Vector2i(3,3)},{"direction":"north","lower":Vector2i(4,4),"upper":Vector2i(4,3),"side":Vector2i(3,4)}];for ramp_case in ramp_cases:terrain.data.cliffs.levels.fill(0);terrain.data.cliffs.levels[terrain.cell_index(ramp_case.upper.x,ramp_case.upper.y)]=1;terrain.data.cliffs.ramps=[{"x":ramp_case.lower.x,"z":ramp_case.lower.y,"direction":ramp_case.direction}];pathing_contract=pathing_contract and pathing.can_step(ramp_case.lower,ramp_case.upper) and not pathing.can_step(ramp_case.side,ramp_case.lower);terrain.data=original;editor.refresh_terrain_preview()
+	_check(normalized and corners_match and preview_matches and water_contract and wall_contract and pathing_contract and is_equal_approx(lower_effective,2.75) and is_equal_approx(upper_effective,4.25) and is_equal_approx(edge_effective,4.0),"saved/reopened ramp coordinates, closed endpoint walls/pathing, preview, and ramp-independent water classification match the canonical contract; normalized=%s lower=%s upper=%s edge=%s"%[normalized,lower_mesh,upper_mesh,edge_mesh])
 
 
 func _check_terrain_lifecycle_history(editor)->void:
@@ -302,17 +303,40 @@ func _check_history_branch_clear(editor) -> void:
 
 
 func _check_failed_open_preserves_session(editor) -> void:
-	editor.open_package("res://worlds/crimsdale")
+	var package_a_path:="/tmp/frontier-terrain-t0-failed-open-a-%s"%Time.get_ticks_msec();DirAccess.make_dir_recursive_absolute(package_a_path)
+	for filename in ["definitions.json","world.json","terrain.json","scenario.json"]:
+		DirAccess.copy_absolute(ProjectSettings.globalize_path("res://worlds/crimsdale/"+filename),package_a_path.path_join(filename))
+	editor.open_package(package_a_path);editor.package.place_instance("building_crimsdale_house_a",Vector3(9,0,9),0.0);editor.refresh_all()
 	editor.enable_surface_paint()
 	editor.show_workflow_editor()
 	editor.workflow_fields.width.value = 1
 	editor.workflow_fields.depth.value = 1
 	editor._workflow_copy()
 	var terrain_before = editor.package.terrain
+	var world_before:Dictionary=editor.package.world.duplicate(true);var path_before:String=editor.package.package_path;var global_undo_before:Array[Dictionary]=editor.global_undo_domains.duplicate(true);var package_undo_before:Array[int]=editor.package.undo_transaction_ids();var terrain_undo_before:Array[int]=terrain_before.undo_transaction_ids();var scenario_undo_before:Array[int]=editor.package.scenario.undo_transaction_ids()
 	var clipboard_before: Dictionary = editor.terrain_clipboard.duplicate(true)
 	editor.open_package("/tmp/frontier-terrain-t0-package-does-not-exist")
-	var preserved: bool = editor.package.terrain == terrain_before and editor.terrain_tool_mode=="workflow" and editor.workflow_dialog.visible and editor.workflow != null and editor.workflow.terrain == terrain_before and editor.terrain_clipboard == clipboard_before
+	var preserved: bool = editor.package.package_path==path_before and editor.package.world==world_before and editor.package.terrain == terrain_before and editor.terrain_tool_mode=="workflow" and editor.workflow_dialog.visible and editor.workflow != null and editor.workflow.terrain == terrain_before and editor.terrain_clipboard == clipboard_before
 	_check(preserved, "a failed Open leaves the current package and recoverable editing session intact; workflow=%s clipboard=%s" % [editor.workflow_dialog.visible, not editor.terrain_clipboard.is_empty()])
+	var package_b_path:="/tmp/frontier-terrain-t0-failed-open-b-%s"%Time.get_ticks_msec();DirAccess.make_dir_recursive_absolute(package_b_path)
+	for filename in ["definitions.json","world.json","terrain.json","scenario.json"]:
+		DirAccess.copy_absolute(ProjectSettings.globalize_path("res://worlds/crimsdale/"+filename),package_b_path.path_join(filename))
+	var scenario_path:=package_b_path.path_join("scenario.json");var backup:=FileAccess.open(scenario_path+".bak",FileAccess.WRITE);backup.store_string("{ malformed recovered scenario");backup.close();var marker:=FileAccess.open(package_b_path.path_join(".world-package-transaction.json"),FileAccess.WRITE);marker.store_string(JSON.stringify({"version":1,"paths":[scenario_path],"preexisting":[true]})+"\n");marker.close()
+	editor.open_package(package_b_path)
+	var preserved_path:bool=editor.package.package_path==path_before
+	var preserved_world:bool=editor.package.world==world_before
+	var preserved_terrain:bool=editor.package.terrain==terrain_before
+	var preserved_workflow:bool=editor.workflow!=null and editor.workflow.terrain==terrain_before
+	var preserved_clipboard:bool=editor.terrain_clipboard==clipboard_before
+	var preserved_history:bool=editor.global_undo_domains==global_undo_before and editor.package.undo_transaction_ids()==package_undo_before and terrain_before.undo_transaction_ids()==terrain_undo_before and editor.package.scenario.undo_transaction_ids()==scenario_undo_before
+	var recovery_failure_preserved:bool=preserved_path and preserved_world and preserved_terrain and preserved_workflow and preserved_clipboard and preserved_history
+	var expected_disk_world:Dictionary=world_before.duplicate(true)
+	expected_disk_world.objects.sort_custom(func(a,b):return a.instance_id<b.instance_id)
+	var saved_to_a:bool=editor.package.save()
+	var disk_a=JSON.parse_string(FileAccess.get_file_as_string(package_a_path.path_join("world.json")))
+	var disk_b=JSON.parse_string(FileAccess.get_file_as_string(package_b_path.path_join("world.json")))
+	var save_target_safe:bool=saved_to_a and disk_a==expected_disk_world and disk_b!=expected_disk_world
+	_check(recovery_failure_preserved and save_target_safe,"recovery-marker success followed by invalid B preserves A path/content/helpers/clipboard/history and the next Save writes only A; path=%s world=%s terrain=%s workflow=%s clipboard=%s history=%s save=%s disk_a=%s disk_b_untouched=%s"%[preserved_path,preserved_world,preserved_terrain,preserved_workflow,preserved_clipboard,preserved_history,saved_to_a,disk_a==expected_disk_world,disk_b!=expected_disk_world])
 	_force_neutral(editor)
 
 

@@ -575,7 +575,7 @@ func remove_scenario() -> bool:
 	return _accept_change()
 
 
-func _restore_backups(paths: Array, preexisting: Array = []) -> void:
+func _restore_backups(paths: Array, preexisting: Array = [], transaction_directory := "") -> void:
 	for index in paths.size():
 		var path: String = paths[index]
 		var backup_path: String = path + ".bak"
@@ -587,8 +587,9 @@ func _restore_backups(paths: Array, preexisting: Array = []) -> void:
 			DirAccess.remove_absolute(path)
 		if FileAccess.file_exists(path + ".tmp"):
 			DirAccess.remove_absolute(path + ".tmp")
-	if not package_path.is_empty():
-		DirAccess.remove_absolute(package_path.path_join(".world-package-transaction.json"))
+	var marker_directory:String=transaction_directory if not transaction_directory.is_empty() else package_path
+	if not marker_directory.is_empty():
+		DirAccess.remove_absolute(marker_directory.path_join(".world-package-transaction.json"))
 
 
 func _recover_transaction(path: String) -> bool:
@@ -599,8 +600,7 @@ func _recover_transaction(path: String) -> bool:
 	if not marker is Dictionary or marker.get("version") != 1 or not marker.get("paths") is Array or not marker.get("preexisting") is Array:
 		errors = ["Save recovery stage: invalid transaction marker; preserve the package and restore its .bak files manually"]
 		return false
-	package_path = path
-	_restore_backups(marker.paths, marker.preexisting)
+	_restore_backups(marker.paths, marker.preexisting, path)
 	return true
 
 
