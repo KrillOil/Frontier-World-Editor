@@ -29,12 +29,13 @@ func _run() -> void:
 	_check(pairwise_completed,"pairwise Selection/Workflow matrix reached its terminal assertion")
 	await _check_world_and_escape_recovery(editor)
 	await _check_ramp_surface_parity(editor)
+	await _check_terrain_lifecycle_history(editor)
 	await _check_package_rebinding(editor)
 	await _check_chronological_history(editor)
 	await _check_saved_history_and_scenario_lifecycle(editor)
 	await _check_history_branch_clear(editor)
 	await _check_failed_open_preserves_session(editor)
-	_check(checks==20,"all planned T0 phases reached completion")
+	_check(checks==22,"all planned T0 phases reached completion")
 
 	print("T0_SUMMARY|checks=", checks, "|failures=", failures.size())
 	for failure in failures:
@@ -149,7 +150,20 @@ func _check_ramp_surface_parity(editor)->void:
 	_check(editor.package.save(),"Serialized-float ramp fixture saves")
 	editor.open_package(package_path);terrain=editor.package.terrain;var cliff_tools=CLIFF_WATER.new(terrain);var normalized:=cliff_tools.edge_has_ramp(3,4,"east") and cliff_tools.edge_has_ramp(4,4,"west");var lower_corners:Array[float]=terrain.cell_corner_heights(3,4);var upper_corners:Array[float]=terrain.cell_corner_heights(4,4);var corners_match:=_all_close(lower_corners,[1.5,1.5,4.0,4.0]) and _all_close(upper_corners,[4.0,4.0,4.5,4.5])
 	editor.refresh_terrain_preview();var grid:Dictionary=terrain.data.grid;var z_center:=float(grid.origin_z_m)+4.5*float(grid.cell_size_m);var lower:=Vector2(float(grid.origin_x_m)+3.5*float(grid.cell_size_m),z_center);var upper:=Vector2(float(grid.origin_x_m)+4.5*float(grid.cell_size_m),z_center);var edge:=Vector2(float(grid.origin_x_m)+4.0*float(grid.cell_size_m),z_center);var mesh=editor.world_root.get_node("TerrainPreview").mesh;var lower_mesh:=_mesh_heights_at([mesh],lower);var upper_mesh:=_mesh_heights_at([mesh],upper);var edge_mesh:=_mesh_heights_at([mesh],edge);var lower_effective:float=terrain.effective_height(lower.x,lower.y);var upper_effective:float=terrain.effective_height(upper.x,upper.y);var edge_effective:float=terrain.effective_height(edge.x,edge.y);var preview_matches:=_all_values_close(lower_mesh,lower_effective) and _all_values_close(upper_mesh,upper_effective) and _all_values_close(edge_mesh,edge_effective)
-	_check(normalized and corners_match and preview_matches and is_equal_approx(lower_effective,2.75) and is_equal_approx(upper_effective,4.25) and is_equal_approx(edge_effective,4.0),"saved/reopened ramp coordinates and preview use runtime-parity lower-cell/shared-edge heights; normalized=%s lower=%s upper=%s edge=%s"%[normalized,lower_mesh,upper_mesh,edge_mesh])
+	var original:Dictionary=terrain.data.duplicate(true);terrain.data.grid.heights_cm.fill(0);terrain.data.cliffs.levels.fill(0);terrain.data.cliffs.levels[4*width+4]=1;terrain.data.cliffs.ramps=[{"x":3,"z":4,"direction":"east"}];terrain.data.water={"enabled":true,"level_cm":100};cliff_tools=CLIFF_WATER.new(terrain);var water_contract:bool=cliff_tools.water_class_at_cell(3,4)=="shallow" and {"direction":"east","x":3,"z":4} in cliff_tools.derived_shores();editor.refresh_terrain_preview();var isolated_mesh=editor.world_root.get_node("TerrainPreview").mesh;var wall_contract:bool=_mesh_has_vertical_wall([isolated_mesh],"z",float(grid.origin_z_m)+4.0*float(grid.cell_size_m),float(grid.origin_x_m)+3.0*float(grid.cell_size_m),float(grid.origin_x_m)+4.0*float(grid.cell_size_m));terrain.data=original;editor.refresh_terrain_preview()
+	_check(normalized and corners_match and preview_matches and water_contract and wall_contract and is_equal_approx(lower_effective,2.75) and is_equal_approx(upper_effective,4.25) and is_equal_approx(edge_effective,4.0),"saved/reopened ramp coordinates, closed endpoint walls, preview, and ramp-independent water classification match the canonical contract; normalized=%s lower=%s upper=%s edge=%s"%[normalized,lower_mesh,upper_mesh,edge_mesh])
+
+
+func _check_terrain_lifecycle_history(editor)->void:
+	var package_path:="/tmp/frontier-terrain-t0-lifecycle-%s"%Time.get_ticks_msec();DirAccess.make_dir_recursive_absolute(package_path)
+	for filename in ["definitions.json","world.json","scenario.json"]:
+		var source:=ProjectSettings.globalize_path("res://worlds/crimsdale/"+filename)
+		if FileAccess.file_exists(source):DirAccess.copy_absolute(source,package_path.path_join(filename))
+	editor.open_package(package_path);editor.show_terrain_editor();editor.terrain_fields.width_cells.text="8";editor.terrain_fields.depth_cells.text="8";editor.terrain_fields.cell_size_m.text="1";editor.terrain_fields.base_height_cm.text="0";editor.terrain_fields.origin_x_m.text="-4";editor.terrain_fields.origin_z_m.text="-4";editor._create_terrain()
+	var created=editor.package.terrain;var create_dirty:bool=created!=null and editor.package.dirty;editor.perform_undo();var undo_clean:bool=editor.package.terrain==null and not editor.package.dirty;editor.perform_redo();var redo_dirty:bool=editor.package.terrain==created and editor.package.dirty
+	_check(create_dirty and undo_clean and redo_dirty,"absent terrain → Create → Undo → Redo is one global lifecycle transaction with exact pre-save dirtiness")
+	var saved:bool=editor.package.save();editor.perform_undo();var saved_undo_dirty:bool=editor.package.terrain==null and editor.package.dirty;editor.perform_redo();var saved_redo_clean:bool=editor.package.terrain==created and not editor.package.dirty and not created.dirty
+	_check(saved and saved_undo_dirty and saved_redo_clean,"saved terrain lifecycle Undo is dirty and Redo returns to the exact clean saved state")
 
 
 func _check_package_rebinding(editor) -> void:
@@ -185,14 +199,19 @@ func _check_package_rebinding(editor) -> void:
 		return
 	package_b.terrain.reset(777)
 	SURFACE_PAINTER.new(package_b.terrain).add_layer("surface_crimsdale_dry_grass")
+	CLIFF_WATER.new(package_b.terrain).set_water(true,321)
 	if not package_b.save():
 		_check(false, "package B fixture saves: %s" % package_b.errors)
 		return
-	var a_layers:Array=package_a_terrain.data.surfaces.layer_ids.duplicate();editor.show_surface_editor();editor.surface_layers.select(1);editor.request_remove_surface_layer();await process_frame;var stale_confirmation_armed:bool=editor.surface_confirmation.visible and not editor.surface_confirmation.confirmed.get_connections().is_empty()
+	var a_layers:Array=package_a_terrain.data.surfaces.layer_ids.duplicate();editor.show_surface_editor();editor.surface_layers.select(1);editor.request_remove_surface_layer();await process_frame;var stale_confirmation_armed:bool=editor.surface_confirmation.visible and not editor.surface_confirmation.confirmed.get_connections().is_empty();editor.surface_confirmation.hide()
+	editor.show_scenario_editor();editor.request_remove_scenario();await process_frame;var stale_scenario_armed:bool=editor.scenario_remove_armed and editor.scenario_remove_confirmation.visible
+	editor.show_cliff_water_editor();await process_frame;var stale_water_values:bool=not editor.cliff_water_enabled.button_pressed and int(editor.cliff_water_level.value)==0
 
 	editor.open_package(package_b_path)
 	var package_b_terrain = editor.package.terrain
-	var b_layers:Array=package_b_terrain.data.surfaces.layer_ids.duplicate();editor.surface_confirmation.confirmed.emit();var stale_confirmation_safe:bool=stale_confirmation_armed and not editor.surface_confirmation.visible and editor.surface_confirmation.confirmed.get_connections().is_empty() and package_a_terrain.data.surfaces.layer_ids==a_layers and package_b_terrain.data.surfaces.layer_ids==b_layers
+	var package_b_scenario=editor.package.scenario;var b_layers:Array=package_b_terrain.data.surfaces.layer_ids.duplicate();editor.surface_confirmation.confirmed.emit();editor.scenario_remove_confirmation.confirmed.emit();editor.apply_water();var package_dialogs_closed:=true
+	for dialog in [editor.terrain_dialog,editor.surface_dialog,editor.cliff_dialog,editor.pathing_dialog,editor.environment_dialog,editor.workflow_dialog,editor.object_dialog,editor.scenario_dialog,editor.sequence_dialog,editor.guidance_dialog,editor.encounter_dialog,editor.cinematic_dialog]:package_dialogs_closed=package_dialogs_closed and not dialog.visible
+	var stale_confirmation_safe:bool=stale_confirmation_armed and stale_scenario_armed and stale_water_values and package_dialogs_closed and not editor.surface_confirmation.visible and editor.surface_confirmation.confirmed.get_connections().is_empty() and not editor.scenario_remove_armed and not editor.scenario_remove_confirmation.visible and package_a_terrain.data.surfaces.layer_ids==a_layers and package_b_terrain.data.surfaces.layer_ids==b_layers and editor.package.scenario==package_b_scenario and bool(package_b_terrain.data.water.enabled) and int(package_b_terrain.data.water.level_cm)==321
 	var helpers_rebound: bool = (
 		editor.sculptor == null or editor.sculptor.terrain == package_b_terrain
 	) and (
@@ -307,7 +326,7 @@ func _activate(editor, mode: String) -> void:
 			editor._on_viewport_input(event)
 		"sculpt": editor.toggle_sculpt_mode()
 		"surface": editor.enable_surface_paint()
-		"cliff": editor.set_cliff_mode("raise")
+		"cliff":editor.show_cliff_water_editor();editor.set_cliff_mode("raise")
 		"pathing":
 			editor.show_pathing_editor()
 			editor.enable_pathing_paint()
@@ -388,6 +407,16 @@ func _all_values_close(values:Array[float],expected:float)->bool:
 	for value in values:
 		if absf(value-expected)>0.001:return false
 	return true
+
+
+func _mesh_has_vertical_wall(meshes:Array,axis:String,coordinate:float,span_min:float,span_max:float)->bool:
+	for mesh in meshes:
+		for surface in mesh.get_surface_count():
+			var arrays:Array=mesh.surface_get_arrays(surface);var vertices:PackedVector3Array=arrays[Mesh.ARRAY_VERTEX];var indices:PackedInt32Array=arrays[Mesh.ARRAY_INDEX]
+			for index in range(0,indices.size(),3):
+				var points:Array[Vector3]=[vertices[indices[index]],vertices[indices[index+1]],vertices[indices[index+2]]];var plane_values:Array=[points[0].x,points[1].x,points[2].x] if axis=="x" else [points[0].z,points[1].z,points[2].z];var spans:Array=[points[0].z,points[1].z,points[2].z] if axis=="x" else [points[0].x,points[1].x,points[2].x];var heights:Array=[points[0].y,points[1].y,points[2].y]
+				if plane_values.all(func(value):return absf(value-coordinate)<0.001) and float(spans.max())>=span_max-0.001 and float(spans.min())<=span_min+0.001 and float(heights.max())-float(heights.min())>0.1:return true
+	return false
 
 
 func _check(condition: bool, message: String) -> void:

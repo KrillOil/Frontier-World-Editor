@@ -558,6 +558,14 @@ func set_scenario(document)->bool:
 	return _accept_change()
 
 
+func set_terrain(document)->bool:
+	if terrain == document:
+		return false
+	_snapshot()
+	terrain = document
+	return _accept_change()
+
+
 func remove_scenario() -> bool:
 	if scenario==null:return false
 	scenario.discard_redo_history()
@@ -641,12 +649,13 @@ func _snapshot() -> void:
 
 
 func _state() -> Dictionary:
-	return {"definitions": definitions.duplicate(true), "world": world.duplicate(true),"scenario":scenario}
+	return {"definitions": definitions.duplicate(true), "world": world.duplicate(true), "terrain": terrain, "scenario": scenario}
 
 
 func _restore(state: Dictionary) -> void:
 	definitions = state.definitions.duplicate(true)
 	world = state.world.duplicate(true)
+	terrain = state.get("terrain")
 	scenario=state.get("scenario")
 	scenario_removed=scenario==null and not package_path.is_empty() and FileAccess.file_exists(package_path.path_join("scenario.json"))
 

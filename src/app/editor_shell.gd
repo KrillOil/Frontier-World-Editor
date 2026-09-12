@@ -60,6 +60,7 @@ var cliff_water_enabled: CheckBox
 var cliff_water_level: SpinBox
 var cliff_mode := ""
 var cliff_ramp_direction: OptionButton
+var cliff_dialog_terrain
 var pathing_dialog: Window
 var pathing_layer: OptionButton
 var pathing_radius: SpinBox
@@ -93,6 +94,7 @@ var scenario_region_list: ItemList
 var scenario_region_shape: OptionButton
 var scenario_region_fields: Dictionary = {}
 var scenario_remove_confirmation: ConfirmationDialog
+var scenario_remove_armed := false
 var sequence_dialog: Window
 var sequence_list: ItemList
 var sequence_fields: Dictionary = {}
@@ -465,7 +467,7 @@ func _terrain_tool_display_name(mode: String) -> String:
 		_: return "Selection"
 
 
-func _reset_terrain_session(reset_history: bool) -> void:
+func _reset_terrain_session(reset_history: bool, close_package_dialogs := false) -> void:
 	moving_instance = false
 	_cancel_pending_terrain_actions()
 	_set_terrain_tool("selection", "Selection tool")
@@ -474,11 +476,14 @@ func _reset_terrain_session(reset_history: bool) -> void:
 	surface_painter = TerrainSurfacePainterScript.new(package.terrain) if package.terrain != null else null
 	pathing = TerrainPathingScript.new(package.terrain) if package.terrain != null else null
 	workflow = TerrainWorkflowScript.new(package.terrain) if package.terrain != null else null
+	cliff_dialog_terrain = null
 	pathing_overlay_visible = false
 	refresh_pathing_overlay()
 	pending_terrain_action = Callable()
 	if reset_history:
 		_reset_global_history_tracking()
+	if close_package_dialogs:
+		_close_package_bound_dialogs()
 
 
 func _cancel_pending_terrain_actions()->void:
@@ -488,6 +493,15 @@ func _cancel_pending_terrain_actions()->void:
 		surface_confirmation.hide()
 		for connection in surface_confirmation.confirmed.get_connections():
 			surface_confirmation.confirmed.disconnect(connection.callable)
+	scenario_remove_armed = false
+	if scenario_remove_confirmation != null: scenario_remove_confirmation.hide()
+	for dialog in [terrain_dialog, surface_dialog, cliff_dialog, pathing_dialog, environment_dialog, workflow_dialog]:
+		if dialog != null: dialog.hide()
+
+
+func _close_package_bound_dialogs() -> void:
+	for dialog in [object_dialog, scenario_dialog, sequence_dialog, guidance_dialog, encounter_dialog, cinematic_dialog, validation_dialog]:
+		if dialog != null: dialog.hide()
 
 
 func _build_surface_editor() -> void:
@@ -686,6 +700,7 @@ func show_cliff_water_editor() -> void:
 	if package.terrain == null:
 		show_blocking_error("Create terrain before editing cliffs or water.")
 		return
+	cliff_dialog_terrain = package.terrain
 	cliff_water_enabled.button_pressed = package.terrain.data.water.enabled
 	cliff_water_level.value = package.terrain.data.water.level_cm
 	var style_index := -1
@@ -697,20 +712,30 @@ func show_cliff_water_editor() -> void:
 
 
 func apply_cliff_style() -> void:
+	if not _cliff_form_is_current(): return
 	if TerrainCliffWaterScript.new(package.terrain).set_style(cliff_style.get_item_metadata(cliff_style.selected)):
 		refresh_all()
 		status("Cliff style replaced without changing topology")
 
 
 func set_cliff_mode(mode: String) -> void:
+	if not _cliff_form_is_current(): return
 	_set_terrain_tool("cliff_" + mode, "%s: click a terrain cell; Escape returns to Selection" % mode.capitalize())
 	cliff_dialog.hide()
 
 
 func apply_water() -> void:
+	if not _cliff_form_is_current(): return
 	if TerrainCliffWaterScript.new(package.terrain).set_water(cliff_water_enabled.button_pressed, roundi(cliff_water_level.value)):
 		refresh_all()
 		status("Water preview updated")
+
+
+func _cliff_form_is_current() -> bool:
+	if cliff_dialog_terrain == null or cliff_dialog_terrain != package.terrain or not cliff_dialog.visible:
+		status("Cliffs & Water was closed because the world changed; reopen it to edit the current terrain")
+		return false
+	return true
 
 
 func apply_cliff_at(screen_position: Vector2) -> void:
@@ -958,7 +983,7 @@ func _build_scenario_editor() -> void:
 	_add_button(form, "Open Groups & Encounters…", show_encounter_editor)
 	_add_button(form, "Open Cinematics…", show_cinematic_editor)
 	_add_button(form, "Open Sequences…", show_sequence_editor)
-	_add_button(form, "Remove Scenario…", func(): scenario_remove_confirmation.popup_centered())
+	_add_button(form, "Remove Scenario…", request_remove_scenario)
 	var divider := HSeparator.new(); form.add_child(divider)
 	scenario_region_list = ItemList.new();scenario_region_list.accessibility_name="Scenario regions, alphabetized by stable ID";scenario_region_list.custom_minimum_size.y = 150; scenario_region_list.item_selected.connect(_load_scenario_region); form.add_child(scenario_region_list)
 	for field in ["region_id","display_name"]: scenario_region_fields[field] = _add_labeled_field(form, field.replace("_", " ").capitalize())
@@ -970,7 +995,7 @@ func _build_scenario_editor() -> void:
 	_add_button(form, "Update Selected Region", _update_scenario_region)
 	_add_button(form, "Reverse Selected Path", _reverse_scenario_path)
 	_add_button(form, "Delete Selected Region", _delete_scenario_region)
-	scenario_remove_confirmation = ConfirmationDialog.new(); scenario_remove_confirmation.title = "Remove Scenario"; scenario_remove_confirmation.dialog_text = "Remove scenario.json from this world on the next save? Terrain, definitions, and placed objects remain."; scenario_remove_confirmation.confirmed.connect(_remove_scenario); add_child(scenario_remove_confirmation)
+	scenario_remove_confirmation = ConfirmationDialog.new(); scenario_remove_confirmation.title = "Remove Scenario"; scenario_remove_confirmation.dialog_text = "Remove scenario.json from this world on the next save? Terrain, definitions, and placed objects remain."; scenario_remove_confirmation.confirmed.connect(_confirm_remove_scenario); add_child(scenario_remove_confirmation)
 
 
 func _build_sequence_editor() -> void:
@@ -1803,6 +1828,18 @@ func _remove_scenario() -> void:
 	if package.remove_scenario():_refresh_scenario_form();refresh_all();status("Scenario removed; save to commit removal")
 
 
+func request_remove_scenario() -> void:
+	scenario_remove_armed = package.scenario != null
+	if scenario_remove_armed: scenario_remove_confirmation.popup_centered()
+
+
+func _confirm_remove_scenario() -> void:
+	if not scenario_remove_armed:
+		return
+	scenario_remove_armed = false
+	_remove_scenario()
+
+
 func _scenario_points() -> Array:
 	var first := Vector3(float(scenario_region_fields.x1.text), 0, float(scenario_region_fields.z1.text)); var second := Vector3(float(scenario_region_fields.x2.text), 0, float(scenario_region_fields.z2.text))
 	if package.terrain != null:
@@ -1928,32 +1965,25 @@ func refresh_terrain_preview() -> void:
 			for layer in layer_ids.size():
 				blended += surface_colors.get(layer_ids[layer], Color.MAGENTA) * (float(weights[cell_index * layer_ids.size() + layer]) / 255.0)
 			blended.a = 1.0
-			var level_m := float(package.terrain.data.cliffs.levels[cell_index]) * 2.0
 			var x0 := float(grid.origin_x_m) + x * float(grid.cell_size_m)
 			var x1 := x0 + float(grid.cell_size_m)
 			var z0 := float(grid.origin_z_m) + z * float(grid.cell_size_m)
 			var z1 := z0 + float(grid.cell_size_m)
-			var width := int(grid.width_cells) + 1
-			var height_indices := [z * width + x, (z + 1) * width + x, z * width + x + 1, (z + 1) * width + x + 1]
-			var preview_heights_cm:Array=[]
-			for corner in 4:
-				var height_cm: int = sculptor.preview_height_cm(height_indices[corner]) if sculptor != null and sculptor.active else int(grid.heights_cm[height_indices[corner]])
-				preview_heights_cm.append(height_cm)
-			var surface_heights:Array[float]=package.terrain.cell_corner_heights(x,z,preview_heights_cm)
+			var surface_heights:Array[float]=_terrain_preview_corner_heights(x,z)
 			var corners: Array[Vector3] = []
 			for corner in 4:
 				var px := x0 if corner < 2 else x1
 				var pz := z0 if corner % 2 == 0 else z1
 				corners.append(Vector3(px,surface_heights[corner],pz))
 			_append_mesh_quad(vertices, colors, indices, corners[0], corners[1], corners[2], corners[3], blended)
-			if x + 1 < int(grid.width_cells):
-				var east_level := float(package.terrain.data.cliffs.levels[cell_index + 1]) * 2.0
-				if not is_equal_approx(level_m, east_level) and not cliff_tools.edge_has_ramp(x, z, "east"):
-					_append_mesh_quad(vertices, colors, indices, corners[2], corners[3], corners[2] + Vector3(0, east_level - level_m, 0), corners[3] + Vector3(0, east_level - level_m, 0), Color("686761"))
-			if z + 1 < int(grid.depth_cells):
-				var south_level := float(package.terrain.data.cliffs.levels[cell_index + int(grid.width_cells)]) * 2.0
-				if not is_equal_approx(level_m, south_level) and not cliff_tools.edge_has_ramp(x, z, "south"):
-					_append_mesh_quad(vertices, colors, indices, corners[1], corners[3], corners[1] + Vector3(0, south_level - level_m, 0), corners[3] + Vector3(0, south_level - level_m, 0), Color("686761"))
+			if x + 1 < int(grid.width_cells) and not cliff_tools.edge_has_ramp(x, z, "east"):
+				var east_heights:Array[float]=_terrain_preview_corner_heights(x+1,z)
+				if not is_equal_approx(corners[2].y,east_heights[0]) or not is_equal_approx(corners[3].y,east_heights[1]):
+					_append_mesh_quad(vertices,colors,indices,corners[2],corners[3],Vector3(corners[2].x,east_heights[0],corners[2].z),Vector3(corners[3].x,east_heights[1],corners[3].z),Color("686761"))
+			if z + 1 < int(grid.depth_cells) and not cliff_tools.edge_has_ramp(x, z, "south"):
+				var south_heights:Array[float]=_terrain_preview_corner_heights(x,z+1)
+				if not is_equal_approx(corners[1].y,south_heights[0]) or not is_equal_approx(corners[3].y,south_heights[2]):
+					_append_mesh_quad(vertices,colors,indices,corners[1],corners[3],Vector3(corners[1].x,south_heights[0],corners[1].z),Vector3(corners[3].x,south_heights[2],corners[3].z),Color("686761"))
 	arrays[Mesh.ARRAY_VERTEX] = vertices
 	arrays[Mesh.ARRAY_INDEX] = indices
 	arrays[Mesh.ARRAY_COLOR] = colors
@@ -1967,6 +1997,13 @@ func refresh_terrain_preview() -> void:
 	terrain_mesh.material_override = material
 	world_root.add_child(terrain_mesh)
 	refresh_water_preview()
+
+
+func _terrain_preview_corner_heights(x:int,z:int)->Array[float]:
+	var grid:Dictionary=package.terrain.data.grid;var sample_width:=int(grid.width_cells)+1;var height_indices:=[z*sample_width+x,(z+1)*sample_width+x,z*sample_width+x+1,(z+1)*sample_width+x+1];var preview_heights_cm:Array=[]
+	for height_index in height_indices:
+		preview_heights_cm.append(sculptor.preview_height_cm(height_index) if sculptor!=null and sculptor.active else int(grid.heights_cm[height_index]))
+	return package.terrain.cell_corner_heights(x,z,preview_heights_cm)
 
 
 func _append_mesh_quad(vertices: PackedVector3Array, colors: PackedColorArray, indices: PackedInt32Array, north_west: Vector3, south_west: Vector3, north_east: Vector3, south_east: Vector3, color: Color) -> void:
@@ -2547,8 +2584,10 @@ func commit_pending_terrain_action() -> void:
 func _create_terrain() -> void:
 	var terrain = package.terrain if package.terrain != null else preload("res://src/domain/terrain_document.gd").new()
 	if terrain.replace(int(terrain_fields.width_cells.text), int(terrain_fields.depth_cells.text), float(terrain_fields.cell_size_m.text), int(terrain_fields.base_height_cm.text), float(terrain_fields.origin_x_m.text), float(terrain_fields.origin_z_m.text)):
-		package.terrain = terrain
-		package.dirty = true
+		if package.terrain == null and not package.set_terrain(terrain):
+			package.errors = ["Terrain could not be attached to the world package"]
+			show_errors()
+			return
 		_reset_terrain_session(false)
 		status("Created %s × %s terrain" % [terrain_fields.width_cells.text, terrain_fields.depth_cells.text])
 		refresh_all()
@@ -2890,6 +2929,7 @@ func _redo_domain(domain: String) -> bool:
 
 func _refresh_after_global_history() -> void:
 	selected_instance_id = ""
+	_reset_terrain_session(false)
 	if package.scenario != null:
 		_refresh_scenario_form()
 		if guidance_dialog.visible: _refresh_guidance()
@@ -2953,7 +2993,7 @@ func request_open_package() -> void:
 func open_package(path: String) -> void:
 	if package.load_from_directory(path):
 		selected_instance_id = ""
-		_reset_terrain_session(true)
+		_reset_terrain_session(true, true)
 		refresh_all()
 		var resource_failures: Array[String] = package.resource_errors()
 		status("Opened %s" % package.world.get("display_name", path) if resource_failures.is_empty() else " | ".join(resource_failures))
@@ -2981,7 +3021,7 @@ func discard_then_continue(action: StringName) -> void:
 	var current_path: String = package.package_path
 	if not current_path.is_empty():
 		package.load_from_directory(current_path)
-	_reset_terrain_session(true)
+	_reset_terrain_session(true, true)
 	refresh_all()
 	if pending_after_save.is_valid():
 		pending_after_save.call()

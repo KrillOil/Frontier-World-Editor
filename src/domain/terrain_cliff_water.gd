@@ -57,7 +57,9 @@ func water_class_at_cell(x: int, z: int) -> String:
 		return "dry"
 	var center_x := float(terrain.data.grid.origin_x_m) + (float(x) + 0.5) * float(terrain.data.grid.cell_size_m)
 	var center_z := float(terrain.data.grid.origin_z_m) + (float(z) + 0.5) * float(terrain.data.grid.cell_size_m)
-	var ground_cm := roundi(terrain.effective_height(center_x, center_z) * 100.0)
+	# Water/shore classification is authored from the continuous base surface plus
+	# this cell's cliff level. Ramp presentation must not change those semantics.
+	var ground_cm := roundi(terrain.sample_height(center_x, center_z) * 100.0) + int(terrain.data.cliffs.levels[terrain.cell_index(x, z)]) * CLIFF_HEIGHT_CM
 	var depth := int(terrain.data.water.level_cm) - ground_cm
 	if depth <= 0: return "dry"
 	if depth <= SHALLOW_MAX_CM: return "shallow"
