@@ -62,4 +62,4 @@ The test command verifies the exact Godot version and runs the shell checks head
 - Environment: author focused sun, ambient, fog, and portable sky settings; toggle the Godot 4.7.1 parity preview independently of saved data
 - Scenario: create portable mission metadata and author labeled point, rectangle, and path regions directly against the world
 
-`Test World` uses `FRONTIER_EXECUTABLE` and the accepted `--world-package <path> --spawn player_start` contract. Set `FRONTIER_PROJECT_PATH` as well when the executable is Godot 4.7.1 and Frontier is being run from source.
+For interactive review, choose **Test Setup…** and select either an exported Frontier executable or Godot 4.7.1 plus Frontier's `Game` folder. Automated environments may set `FRONTIER_EXECUTABLE` and, for source review, `FRONTIER_PROJECT_PATH`. Both routes use the accepted `--world-package <path> --spawn player_start` contract.

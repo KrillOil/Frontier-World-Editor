@@ -26,7 +26,12 @@ The initial workflow uses `player_start`. When launching Frontier's Godot projec
 4. Surface launch or validation failures in the editor.
 5. Launch Frontier directly into the edited world, bypassing ordinary menus intended for players.
 
-Configure `FRONTIER_EXECUTABLE` with the exported Frontier executable. For source-project review, set it to the Godot 4.7.1 executable and also set `FRONTIER_PROJECT_PATH` to Frontier's `Game` directory.
+Choose **Test Setup…** in the editor before launching:
+
+- Source review: set **Frontier executable or Godot 4.7.1 executable** to the absolute Godot 4.7.1 executable, and set **Frontier project folder** to the absolute `Frontier/Game` directory.
+- Exported build: select the exported `Frontier.exe` and leave **Frontier project folder** empty.
+
+These values apply to the current editor session. `FRONTIER_EXECUTABLE` and `FRONTIER_PROJECT_PATH` remain supported as launch defaults for automated or command-line environments.
 
 ## Compatibility
 

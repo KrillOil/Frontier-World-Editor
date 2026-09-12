@@ -10,7 +10,7 @@ func _run()->void:
 	var output:=OS.get_environment("QA_GUIDED_PACKAGE_PATH")
 	if output.is_empty():push_error("QA_GUIDED_PACKAGE_PATH is required");quit(1);return
 	var screenshot_path:=OS.get_environment("QA_EDITOR_SCREENSHOT_PATH")
-	var cinematic_screenshot_path:=OS.get_environment("QA_CINEMATIC_SCREENSHOT_PATH");var validation_screenshot_path:=OS.get_environment("QA_VALIDATION_SCREENSHOT_PATH");var needs_capture:=not screenshot_path.is_empty() or not cinematic_screenshot_path.is_empty() or not validation_screenshot_path.is_empty()
+	var cinematic_screenshot_path:=OS.get_environment("QA_CINEMATIC_SCREENSHOT_PATH");var validation_screenshot_path:=OS.get_environment("QA_VALIDATION_SCREENSHOT_PATH");var setup_screenshot_path:=OS.get_environment("QA_TEST_SETUP_SCREENSHOT_PATH");var needs_capture:=not screenshot_path.is_empty() or not cinematic_screenshot_path.is_empty() or not validation_screenshot_path.is_empty() or not setup_screenshot_path.is_empty()
 	DirAccess.make_dir_recursive_absolute(output)
 	for filename in ["definitions.json","world.json","terrain.json"]:
 		var source:=ProjectSettings.globalize_path("res://worlds/crimsdale/"+filename);var error:=DirAccess.copy_absolute(source,output.path_join(filename))
@@ -35,6 +35,9 @@ func _run()->void:
 		var opening:Dictionary=editor.package.scenario._find(editor.package.scenario.data.cinematics,"cinematic_id","opening");var speaker:String=opening.steps[1].speaker_instance_id;opening.steps[1].speaker_instance_id="missing_speaker";editor._validate_sequence_flow()
 		if not await _capture(capture_viewport,validation_screenshot_path):return
 		opening.steps[1].speaker_instance_id=speaker
+	if not setup_screenshot_path.is_empty():
+		editor.validation_dialog.hide();editor.cinematic_dialog.hide();editor.test_world_executable_field.text="/full/path/Godot_v4.7.1-stable_linux.x86_64";editor.test_world_project_field.text="/full/path/Frontier/Game";editor.show_test_world_setup();editor.status("Test World setup ready")
+		if not await _capture(capture_viewport,setup_screenshot_path):return
 	editor.viewport.render_target_update_mode=SubViewport.UPDATE_DISABLED;var host:=editor.get_parent();host.remove_child(editor);editor.free()
 	if host is SubViewport:root.remove_child(host);host.free()
 	await process_frame
