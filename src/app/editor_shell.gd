@@ -7,6 +7,7 @@ const TerrainCliffWaterScript = preload("res://src/domain/terrain_cliff_water.gd
 const TerrainPathingScript = preload("res://src/domain/terrain_pathing.gd")
 const TerrainEnvironmentScript = preload("res://src/domain/terrain_environment.gd")
 const TerrainWorkflowScript = preload("res://src/domain/terrain_workflow.gd")
+const WorkflowInputGuardScript=preload("res://src/app/workflow_input_guard.gd")
 const ScenarioDocumentScript = preload("res://src/domain/scenario_document.gd")
 const DEFAULT_PACKAGE := "res://worlds/crimsdale"
 
@@ -20,6 +21,7 @@ var viewport: SubViewport
 var viewport_container: SubViewportContainer
 var status_label: Label
 var dirty_label: Label
+var terrain_mode_label: Label
 var inspector_content: VBoxContainer
 var palette_content: VBoxContainer
 var placement_ghost: MeshInstance3D
@@ -78,6 +80,13 @@ var workflow_domains: Dictionary = {}
 var workflow_mode: OptionButton
 var workflow
 var terrain_clipboard: Dictionary = {}
+var terrain_tool_mode := "selection"
+var global_undo_domains: Array[Dictionary] = []
+var global_redo_domains: Array[Dictionary] = []
+var tracked_history_depths: Dictionary = {}
+var known_history_transaction_ids:Dictionary={}
+var history_tracking_ready := false
+var history_tracking_suspended := false
 var scenario_dialog: Window
 var scenario_fields: Dictionary = {}
 var scenario_region_list: ItemList
@@ -175,6 +184,7 @@ func _ready() -> void:
 	if not package.load_from_directory(DEFAULT_PACKAGE):
 		show_errors()
 	else:
+		_reset_terrain_session(true)
 		var resource_failures: Array[String] = package.resource_errors()
 		status("Opened Crimsdale" if resource_failures.is_empty() else " | ".join(resource_failures))
 	refresh_all()
@@ -190,7 +200,7 @@ func _build_toolbar() -> void:
 	bar.offset_bottom = 46
 	bar.add_theme_constant_override("separation",1)
 	add_child(bar)
-	_add_button(bar, "World", func(): status("World workspace"))
+	_add_button(bar, "World", return_to_world_selection)
 	_add_button(bar, "Open", request_open_package)
 	_add_button(bar, "Object Editor", show_object_editor)
 	_add_button(bar, "Terrain", show_terrain_editor)
@@ -221,6 +231,10 @@ func _build_status_bar() -> void:
 	status_label = Label.new()
 	status_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	bar.add_child(status_label)
+	terrain_mode_label = Label.new()
+	terrain_mode_label.text = "Mode: Selection"
+	terrain_mode_label.accessibility_name = "Active editor mode"
+	bar.add_child(terrain_mode_label)
 	dirty_label = Label.new()
 	bar.add_child(dirty_label)
 
@@ -338,24 +352,10 @@ func toggle_sculpt_mode() -> void:
 	if package.terrain == null:
 		show_blocking_error("Create terrain before sculpting it.")
 		return
-	sculpt_enabled = not sculpt_enabled
 	if sculpt_enabled:
-		surface_enabled = false
-		$Workspace/Viewport/Content/SurfaceHUD.visible = false
-		if surface_painter != null:
-			surface_painter.cancel()
-	$Workspace/Viewport/Content/SculptHUD.visible = sculpt_enabled
-	if sculpt_enabled:
-		cancel_placement()
-		sculptor = TerrainSculptorScript.new(package.terrain)
-		_make_brush_preview()
-		status("Sculpt mode: drag on terrain; keys 1–6 select tools; Escape cancels a stroke")
+		_set_terrain_tool("selection", "Selection tool")
 	else:
-		cancel_sculpt_stroke()
-		if brush_preview != null:
-			brush_preview.queue_free()
-			brush_preview = null
-		status("Selection tool")
+		_set_terrain_tool("sculpt", "Sculpt mode: drag on terrain; keys 1–6 select tools; Escape returns to Selection")
 
 
 func _make_brush_preview() -> void:
@@ -398,6 +398,96 @@ func cancel_sculpt_stroke() -> void:
 		sculptor.cancel()
 		refresh_terrain_preview()
 		status("Sculpt stroke cancelled")
+
+
+func return_to_world_selection() -> void:
+	moving_instance = false
+	_set_terrain_tool("selection", "World workspace — Selection tool")
+
+
+func _set_terrain_tool(mode: String, message := "") -> void:
+	if sculptor != null and sculptor.active:
+		sculptor.cancel()
+		refresh_terrain_preview()
+	if surface_painter != null and surface_painter.active:
+		surface_painter.cancel()
+		refresh_terrain_preview()
+	if pathing != null and pathing.painting:
+		pathing.cancel_paint()
+	cancel_placement()
+	moving_instance = false
+	if workflow_dialog != null and mode != "workflow":
+		workflow_dialog.hide()
+	terrain_tool_mode = mode
+	sculpt_enabled = mode == "sculpt"
+	surface_enabled = mode == "surface"
+	pathing_enabled = mode == "pathing"
+	cliff_mode = mode.trim_prefix("cliff_") if mode.begins_with("cliff_") else ""
+	$Workspace/Viewport/Content/SculptHUD.visible = sculpt_enabled
+	$Workspace/Viewport/Content/SurfaceHUD.visible = surface_enabled
+	$Workspace/Viewport/Content/PathingHUD.visible = pathing_enabled
+	if sculpt_enabled:
+		sculptor = TerrainSculptorScript.new(package.terrain)
+	elif surface_enabled:
+		surface_painter = TerrainSurfacePainterScript.new(package.terrain)
+	if sculpt_enabled or surface_enabled:
+		if brush_preview == null:
+			_make_brush_preview()
+	elif brush_preview != null:
+		brush_preview.queue_free()
+		brush_preview = null
+	if pathing_enabled:
+		if pathing == null:
+			pathing = TerrainPathingScript.new(package.terrain)
+		pathing_overlay_visible = true
+		pathing.reset_cancellation()
+		pathing.rebuild_overlay(pathing_layer.get_item_metadata(pathing_layer.selected))
+	else:
+		pathing_overlay_visible = false
+	refresh_pathing_overlay()
+	if terrain_mode_label != null:
+		terrain_mode_label.text = "Mode: %s" % _terrain_tool_display_name(mode)
+	if not message.is_empty():
+		status(message)
+
+
+func _terrain_tool_display_name(mode: String) -> String:
+	match mode:
+		"sculpt": return "Sculpt"
+		"surface": return "Surface Paint"
+		"pathing": return "Pathing Paint"
+		"workflow": return "Workflow"
+		"placement": return "Placement"
+		"move": return "Move"
+		"cliff_raise": return "Raise Cliff"
+		"cliff_lower": return "Lower Cliff"
+		"cliff_ramp": return "Author Ramp"
+		_: return "Selection"
+
+
+func _reset_terrain_session(reset_history: bool) -> void:
+	moving_instance = false
+	_cancel_pending_terrain_actions()
+	_set_terrain_tool("selection", "Selection tool")
+	terrain_clipboard.clear()
+	sculptor = TerrainSculptorScript.new(package.terrain) if package.terrain != null else null
+	surface_painter = TerrainSurfacePainterScript.new(package.terrain) if package.terrain != null else null
+	pathing = TerrainPathingScript.new(package.terrain) if package.terrain != null else null
+	workflow = TerrainWorkflowScript.new(package.terrain) if package.terrain != null else null
+	pathing_overlay_visible = false
+	refresh_pathing_overlay()
+	pending_terrain_action = Callable()
+	if reset_history:
+		_reset_global_history_tracking()
+
+
+func _cancel_pending_terrain_actions()->void:
+	pending_terrain_action=Callable()
+	if terrain_confirmation!=null:terrain_confirmation.hide()
+	if surface_confirmation!=null:
+		surface_confirmation.hide()
+		for connection in surface_confirmation.confirmed.get_connections():
+			surface_confirmation.confirmed.disconnect(connection.callable)
 
 
 func _build_surface_editor() -> void:
@@ -548,15 +638,8 @@ func move_surface_layer(direction: int) -> void:
 
 
 func enable_surface_paint() -> void:
-	sculpt_enabled = false
-	$Workspace/Viewport/Content/SculptHUD.visible = false
-	surface_enabled = true
-	$Workspace/Viewport/Content/SurfaceHUD.visible = true
-	surface_painter = TerrainSurfacePainterScript.new(package.terrain)
-	if brush_preview == null:
-		_make_brush_preview()
+	_set_terrain_tool("surface", "Surface paint: drag to paint; Escape returns to Selection")
 	surface_dialog.hide()
-	status("Surface paint: drag to paint; Escape cancels a stroke")
 
 
 func _build_cliff_water_editor() -> void:
@@ -620,9 +703,8 @@ func apply_cliff_style() -> void:
 
 
 func set_cliff_mode(mode: String) -> void:
-	cliff_mode = mode
+	_set_terrain_tool("cliff_" + mode, "%s: click a terrain cell; Escape returns to Selection" % mode.capitalize())
 	cliff_dialog.hide()
-	status("%s: click a terrain cell; Escape returns to selection" % mode.capitalize())
 
 
 func apply_water() -> void:
@@ -684,10 +766,8 @@ func toggle_pathing_overlay()->void:
 
 
 func enable_pathing_paint()->void:
-	sculpt_enabled=false;surface_enabled=false;cliff_mode="";pathing_enabled=true
-	$Workspace/Viewport/Content/SculptHUD.visible=false;$Workspace/Viewport/Content/SurfaceHUD.visible=false;$Workspace/Viewport/Content/PathingHUD.visible=true
-	pathing_dialog.hide();pathing_overlay_visible=true;pathing.reset_cancellation();pathing.rebuild_overlay(pathing_layer.get_item_metadata(pathing_layer.selected));refresh_pathing_overlay()
-	status("Pathing paint: drag cells; Escape cancels the active stroke")
+	_set_terrain_tool("pathing", "Pathing paint: drag cells; Escape returns to Selection")
+	pathing_dialog.hide()
 
 
 func validate_pathing()->void:
@@ -762,37 +842,66 @@ func _build_workflow_editor() -> void:
 	workflow_dialog = Window.new()
 	workflow_dialog.title = "Terrain Workflow"
 	workflow_dialog.size = Vector2i(520, 620)
-	workflow_dialog.close_requested.connect(workflow_dialog.hide)
+	workflow_dialog.close_requested.connect(close_workflow_editor)
+	workflow_dialog.window_input.connect(_on_workflow_window_input)
 	workflow_dialog.visible = false
 	add_child(workflow_dialog)
+	var input_guard=WorkflowInputGuardScript.new();input_guard.name="WorkflowInputGuard";input_guard.escape_requested.connect(close_workflow_editor);workflow_dialog.add_child(input_guard)
 	var form := VBoxContainer.new()
 	form.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	form.offset_left = 18; form.offset_top = 18; form.offset_right = -18; form.offset_bottom = -18
+	form.add_theme_constant_override("separation", 2)
 	workflow_dialog.add_child(form)
 	var help := Label.new()
 	help.text = "Selection and paste use cell coordinates with a north-west anchor. Shortcuts: Ctrl+Z/Y undo/redo, Ctrl+C/V copy/paste, F samples, M recenters. Shortcuts pause while editing text."
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	form.add_child(help)
-	for spec in [["x", "Selection X", 0, 511], ["z", "Selection Z", 0, 511], ["width", "Width", 1, 512], ["depth", "Depth", 1, 512], ["paste_x", "Paste X", 0, 511], ["paste_z", "Paste Z", 0, 511], ["grid_snap", "Grid snap (cells)", 1, 32], ["height_snap", "Height snap (cm)", 1, 1000]]:
-		workflow_fields[spec[0]] = _hud_spin(form, spec[1], spec[2], spec[3], 1, 1)
+	var columns := HBoxContainer.new()
+	columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	columns.add_theme_constant_override("separation", 18)
+	form.add_child(columns)
+	var coordinates := VBoxContainer.new()
+	coordinates.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	coordinates.add_theme_constant_override("separation", 2)
+	columns.add_child(coordinates)
+	var options := VBoxContainer.new()
+	options.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	options.add_theme_constant_override("separation", 2)
+	columns.add_child(options)
+	for spec in [["x", "Selection X", 0, 511], ["z", "Selection Z", 0, 511], ["width", "Width", 1, 512], ["depth", "Depth", 1, 512], ["paste_x", "Paste X", 0, 511], ["paste_z", "Paste Z", 0, 511]]:
+		workflow_fields[spec[0]] = _hud_spin(coordinates, spec[1], spec[2], spec[3], 1, 1)
+	for spec in [["grid_snap", "Grid snap (cells)", 1, 32], ["height_snap", "Height snap (cm)", 1, 1000]]:
+		workflow_fields[spec[0]] = _hud_spin(options, spec[1], spec[2], spec[3], 1, 1)
 	workflow_fields.width.value = 1; workflow_fields.depth.value = 1
 	workflow_fields.grid_snap.value = 1; workflow_fields.height_snap.value = 25
-	var domains_label := Label.new(); domains_label.text = "Clipboard domains"; form.add_child(domains_label)
+	var domains_label := Label.new(); domains_label.text = "Clipboard domains"; options.add_child(domains_label)
 	for domain in ["height", "surface", "cliff", "water", "pathing"]:
-		var toggle := CheckBox.new(); toggle.text = domain.capitalize(); toggle.button_pressed = true; form.add_child(toggle); workflow_domains[domain] = toggle
-	workflow_mode = OptionButton.new(); workflow_mode.add_item("Replace enabled values"); workflow_mode.add_item("Merge non-default cliff/pathing values"); form.add_child(workflow_mode)
-	_add_button(form, "Select Area", _workflow_select)
-	_add_button(form, "Copy Selection  Ctrl+C", _workflow_copy)
-	_add_button(form, "Preview / Paste  Ctrl+V", _workflow_paste)
-	_add_button(form, "Sample NW Cell  F", _workflow_sample)
-	_add_button(form, "Recenter Minimap  M", _workflow_recenter)
+		var toggle := CheckBox.new(); toggle.text = domain.capitalize(); toggle.button_pressed = true; options.add_child(toggle); workflow_domains[domain] = toggle
+	workflow_mode = OptionButton.new(); workflow_mode.add_item("Replace enabled values"); workflow_mode.add_item("Merge non-default cliff/pathing values"); options.add_child(workflow_mode)
+	_add_button(options, "Select Area", _workflow_select)
+	_add_button(options, "Copy Selection  Ctrl+C", _workflow_copy)
+	_add_button(options, "Preview / Paste  Ctrl+V", _workflow_paste)
+	_add_button(options, "Sample NW Cell  F", _workflow_sample)
+	_add_button(options, "Recenter Minimap  M", _workflow_recenter)
 
 
 func show_workflow_editor() -> void:
 	if package.terrain == null: show_blocking_error("Create terrain before using terrain workflow tools."); return
+	_set_terrain_tool("workflow")
 	workflow = TerrainWorkflowScript.new(package.terrain)
 	workflow_dialog.popup_centered()
 	status("Terrain workflow ready — selection, clipboard, snapping, sampling, minimap, and shortcuts")
+
+
+func close_workflow_editor() -> void:
+	workflow_dialog.hide()
+	_set_terrain_tool("selection", "Selection tool")
+
+
+func _on_workflow_window_input(event:InputEvent)->void:
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode==KEY_ESCAPE:
+		close_workflow_editor()
+		workflow_dialog.set_input_as_handled()
 
 
 func _workflow_select() -> void:
@@ -1673,14 +1782,14 @@ func _create_scenario() -> void:
 	if package.scenario != null: status("This world already has a scenario document"); return
 	var scenario = ScenarioDocumentScript.new(); var scenario_id := str(package.world.get("world_id", "world")) + "_guided_tutorial"
 	if scenario.create(scenario_id, "Crimsdale Guided Tutorial", "A guided hero-and-squad journey through Crimsdale.", "frontier_company", package.world):
-		package.scenario = scenario; package.scenario_removed = false; _refresh_scenario_form(); refresh_all(); status("Created scenario '%s'" % scenario_id)
+		package.set_scenario(scenario);_refresh_scenario_form();refresh_all();status("Created scenario '%s'"%scenario_id)
 	else: package.errors = scenario.errors; show_errors()
 
 
 func _create_guided_mission_template()->void:
 	if package.scenario!=null:status("Remove the existing scenario before applying a guided mission template");return
 	var scenario=ScenarioDocumentScript.new();var scenario_id:=str(package.world.get("world_id","world"))+"_guided_mission"
-	if scenario.create_guided_mission_template(scenario_id,package.world,package.definitions,package.terrain):package.scenario=scenario;package.scenario_removed=false;_refresh_scenario_form();refresh_all();status("Guided mission template created — review its generic roles and checkpoints")
+	if scenario.create_guided_mission_template(scenario_id,package.world,package.definitions,package.terrain):package.set_scenario(scenario);_refresh_scenario_form();refresh_all();status("Guided mission template created — review its generic roles and checkpoints")
 	else:package.errors=scenario.errors;show_errors()
 
 
@@ -1691,7 +1800,7 @@ func _apply_scenario_metadata() -> void:
 
 
 func _remove_scenario() -> void:
-	package.remove_scenario(); _refresh_scenario_form(); refresh_all(); status("Scenario removed; save to commit removal")
+	if package.remove_scenario():_refresh_scenario_form();refresh_all();status("Scenario removed; save to commit removal")
 
 
 func _scenario_points() -> Array:
@@ -1757,6 +1866,7 @@ func apply_environment_preview()->void:
 
 
 func refresh_all() -> void:
+	_track_history_changes()
 	refresh_palette()
 	refresh_world()
 	refresh_inspector()
@@ -1824,25 +1934,17 @@ func refresh_terrain_preview() -> void:
 			var z0 := float(grid.origin_z_m) + z * float(grid.cell_size_m)
 			var z1 := z0 + float(grid.cell_size_m)
 			var width := int(grid.width_cells) + 1
-			var heights := [z * width + x, (z + 1) * width + x, z * width + x + 1, (z + 1) * width + x + 1]
+			var height_indices := [z * width + x, (z + 1) * width + x, z * width + x + 1, (z + 1) * width + x + 1]
+			var preview_heights_cm:Array=[]
+			for corner in 4:
+				var height_cm: int = sculptor.preview_height_cm(height_indices[corner]) if sculptor != null and sculptor.active else int(grid.heights_cm[height_indices[corner]])
+				preview_heights_cm.append(height_cm)
+			var surface_heights:Array[float]=package.terrain.cell_corner_heights(x,z,preview_heights_cm)
 			var corners: Array[Vector3] = []
 			for corner in 4:
-				var height_cm: int = sculptor.preview_height_cm(heights[corner]) if sculptor != null and sculptor.active else int(grid.heights_cm[heights[corner]])
 				var px := x0 if corner < 2 else x1
 				var pz := z0 if corner % 2 == 0 else z1
-				corners.append(Vector3(px, float(height_cm) / 100.0 + level_m, pz))
-			if x > 0 and cliff_tools.edge_has_ramp(x, z, "west"):
-				var west_delta := (float(package.terrain.data.cliffs.levels[cell_index - 1]) * 2.0) - level_m
-				corners[0].y += west_delta; corners[1].y += west_delta
-			if x + 1 < int(grid.width_cells) and cliff_tools.edge_has_ramp(x, z, "east"):
-				var east_delta := (float(package.terrain.data.cliffs.levels[cell_index + 1]) * 2.0) - level_m
-				corners[2].y += east_delta; corners[3].y += east_delta
-			if z > 0 and cliff_tools.edge_has_ramp(x, z, "north"):
-				var north_delta := (float(package.terrain.data.cliffs.levels[cell_index - int(grid.width_cells)]) * 2.0) - level_m
-				corners[0].y += north_delta; corners[2].y += north_delta
-			if z + 1 < int(grid.depth_cells) and cliff_tools.edge_has_ramp(x, z, "south"):
-				var south_delta := (float(package.terrain.data.cliffs.levels[cell_index + int(grid.width_cells)]) * 2.0) - level_m
-				corners[1].y += south_delta; corners[3].y += south_delta
+				corners.append(Vector3(px,surface_heights[corner],pz))
 			_append_mesh_quad(vertices, colors, indices, corners[0], corners[1], corners[2], corners[3], blended)
 			if x + 1 < int(grid.width_cells):
 				var east_level := float(package.terrain.data.cliffs.levels[cell_index + 1]) * 2.0
@@ -2177,32 +2279,24 @@ func _on_viewport_input(event: InputEvent) -> void:
 				var instance := package.find_instance(selected_instance_id)
 				package.update_instance(selected_instance_id, ground_position(event.position), instance.rotation_y)
 				moving_instance = false
+				terrain_tool_mode = "selection"
+				terrain_mode_label.text = "Mode: Selection"
 				status("Moved '%s'" % selected_instance_id)
 				refresh_all()
 			else:
 				select_at(event.position)
 	elif event is InputEventKey and event.pressed:
 		if event.keycode == KEY_ESCAPE:
-			if pathing_enabled and pathing!=null and pathing.painting:
-				pathing.cancel_paint();status("Pathing stroke cancelled")
-			elif not cliff_mode.is_empty():
-				cliff_mode = ""
-				status("Selection tool")
-			elif surface_enabled and surface_painter != null and surface_painter.active:
-				surface_painter.cancel()
-				status("Surface stroke cancelled")
-			elif sculpt_enabled and sculptor != null and sculptor.active:
-				cancel_sculpt_stroke()
-			elif moving_instance:
-				moving_instance = false
-				status("Move cancelled")
-			else:
-				cancel_placement()
+			moving_instance = false
+			_set_terrain_tool("selection", "Selection tool")
 		elif sculpt_enabled and event.keycode >= KEY_1 and event.keycode <= KEY_6:
 			sculpt_tool.select(int(event.keycode - KEY_1))
 			status("Sculpt tool: %s" % sculpt_tool.get_item_text(sculpt_tool.selected))
 		elif event.keycode == KEY_G and not selected_instance_id.is_empty():
+			_set_terrain_tool("selection")
 			moving_instance = true
+			terrain_tool_mode = "move"
+			terrain_mode_label.text = "Mode: Move"
 			status("Move: click a ground position or Escape to cancel")
 		elif event.keycode == KEY_Q and not placement_definition_id.is_empty():
 			placement_rotation -= 15.0
@@ -2232,8 +2326,10 @@ func ground_position(screen_position: Vector2) -> Vector3:
 
 
 func start_placement(definition_id: String) -> void:
-	cancel_placement()
+	_set_terrain_tool("selection")
 	placement_definition_id = definition_id
+	terrain_tool_mode = "placement"
+	terrain_mode_label.text = "Mode: Placement"
 	placement_ghost = MeshInstance3D.new()
 	placement_ghost.name = "PlacementGhost"
 	var mesh := BoxMesh.new()
@@ -2253,6 +2349,10 @@ func cancel_placement() -> void:
 	if placement_ghost != null:
 		placement_ghost.queue_free()
 		placement_ghost = null
+	if terrain_tool_mode == "placement":
+		terrain_tool_mode = "selection"
+		if terrain_mode_label != null:
+			terrain_mode_label.text = "Mode: Selection"
 	status("Selection tool")
 
 
@@ -2449,6 +2549,7 @@ func _create_terrain() -> void:
 	if terrain.replace(int(terrain_fields.width_cells.text), int(terrain_fields.depth_cells.text), float(terrain_fields.cell_size_m.text), int(terrain_fields.base_height_cm.text), float(terrain_fields.origin_x_m.text), float(terrain_fields.origin_z_m.text)):
 		package.terrain = terrain
 		package.dirty = true
+		_reset_terrain_session(false)
 		status("Created %s × %s terrain" % [terrain_fields.width_cells.text, terrain_fields.depth_cells.text])
 		refresh_all()
 	else:
@@ -2459,6 +2560,7 @@ func _create_terrain() -> void:
 func _resize_terrain() -> void:
 	var anchor: String = terrain_anchor.get_item_metadata(terrain_anchor.selected)
 	if package.terrain.resize(int(terrain_fields.width_cells.text), int(terrain_fields.depth_cells.text), anchor):
+		_reset_terrain_session(false)
 		status("Resized terrain using %s anchor" % anchor.replace("_", " "))
 		refresh_all()
 	else:
@@ -2468,6 +2570,7 @@ func _resize_terrain() -> void:
 
 func _reset_terrain() -> void:
 	if package.terrain.reset(int(terrain_fields.base_height_cm.text)):
+		_reset_terrain_session(false)
 		status("Reset terrain to %s cm" % terrain_fields.base_height_cm.text)
 		refresh_all()
 	else:
@@ -2677,37 +2780,123 @@ func unique_definition_id(base: String) -> String:
 
 
 func perform_undo() -> void:
-	if package.scenario != null and (scenario_dialog.visible or guidance_dialog.visible or sequence_dialog.visible or encounter_dialog.visible or cinematic_dialog.visible) and package.scenario.can_undo() and package.scenario.undo():
-		selected_instance_id = ""
-		_refresh_scenario_form()
-		if guidance_dialog.visible:_refresh_guidance()
-		if sequence_dialog.visible:_refresh_sequence_list()
-		if encounter_dialog.visible:_refresh_encounters()
-		if cinematic_dialog.visible:_refresh_cinematics()
-		refresh_all()
-	elif package.terrain != null and package.terrain.can_undo() and package.terrain.undo():
-		selected_instance_id = ""
-		refresh_all()
-	elif package.undo():
-		selected_instance_id = ""
-		refresh_all()
+	_track_history_changes()
+	while not global_undo_domains.is_empty():
+		var transaction: Dictionary = global_undo_domains.pop_back()
+		var domain: String = transaction.domain
+		history_tracking_suspended = true
+		var changed := _undo_domain(domain)
+		if changed:
+			global_redo_domains.append(transaction)
+			_refresh_after_global_history()
+		history_tracking_suspended = false
+		tracked_history_depths = _domain_history_depths()
+		if changed:
+			status("Undo — %s" % domain.capitalize())
+			return
+	status("Nothing to undo")
 
 
 func perform_redo() -> void:
-	if package.scenario != null and (scenario_dialog.visible or guidance_dialog.visible or sequence_dialog.visible or encounter_dialog.visible or cinematic_dialog.visible) and package.scenario.can_redo() and package.scenario.redo():
-		selected_instance_id = ""
+	while not global_redo_domains.is_empty():
+		var transaction: Dictionary = global_redo_domains.pop_back()
+		var domain: String = transaction.domain
+		history_tracking_suspended = true
+		var changed := _redo_domain(domain)
+		if changed:
+			global_undo_domains.append(transaction)
+			_refresh_after_global_history()
+		history_tracking_suspended = false
+		tracked_history_depths = _domain_history_depths()
+		if changed:
+			status("Redo — %s" % domain.capitalize())
+			return
+	status("Nothing to redo")
+
+
+func _domain_history_depths() -> Dictionary:
+	return {
+		"world": package.history_depth(),
+		"terrain": package.terrain.history_depth() if package.terrain != null else 0,
+		"scenario": package.scenario.history_depth() if package.scenario != null else 0,
+	}
+
+
+func _reset_global_history_tracking() -> void:
+	global_undo_domains = _current_undo_transactions()
+	global_redo_domains.clear()
+	known_history_transaction_ids.clear()
+	for transaction in global_undo_domains:known_history_transaction_ids[int(transaction.id)]=true
+	tracked_history_depths = _domain_history_depths()
+	history_tracking_ready = true
+
+
+func _track_history_changes() -> void:
+	if history_tracking_suspended:
+		return
+	var current := _domain_history_depths()
+	if not history_tracking_ready:
+		tracked_history_depths = current
+		history_tracking_ready = true
+		return
+	var current_transactions := _current_undo_transactions()
+	var added := current_transactions.any(func(transaction): return not known_history_transaction_ids.has(int(transaction.id)))
+	if added:
+		global_redo_domains.clear()
+		package.discard_redo_history()
+		if package.terrain != null:
+			package.terrain.discard_redo_history()
+		if package.scenario != null:
+			package.scenario.discard_redo_history()
+		for transaction in current_transactions:known_history_transaction_ids[int(transaction.id)]=true
+	var current_ids:={}
+	for transaction in current_transactions:current_ids[int(transaction.id)]=true
+	for transaction in global_undo_domains:
+		if transaction.domain=="scenario" and package.scenario==null and not current_ids.has(int(transaction.id)):current_transactions.append(transaction)
+	current_transactions.sort_custom(func(a,b):return int(a.id)<int(b.id))
+	global_undo_domains = current_transactions
+	tracked_history_depths = current
+
+
+func _current_undo_transactions() -> Array[Dictionary]:
+	var transactions: Array[Dictionary] = []
+	for transaction_id in package.undo_transaction_ids():
+		transactions.append({"id": transaction_id, "domain": "world"})
+	if package.terrain != null:
+		for transaction_id in package.terrain.undo_transaction_ids():
+			transactions.append({"id": transaction_id, "domain": "terrain"})
+	if package.scenario != null:
+		for transaction_id in package.scenario.undo_transaction_ids():
+			transactions.append({"id": transaction_id, "domain": "scenario"})
+	transactions.sort_custom(func(a, b): return int(a.id) < int(b.id))
+	return transactions
+
+
+func _undo_domain(domain: String) -> bool:
+	match domain:
+		"world": return package.undo()
+		"terrain": return package.terrain != null and package.terrain.undo()
+		"scenario": return package.scenario != null and package.scenario.undo()
+		_: return false
+
+
+func _redo_domain(domain: String) -> bool:
+	match domain:
+		"world": return package.redo()
+		"terrain": return package.terrain != null and package.terrain.redo()
+		"scenario": return package.scenario != null and package.scenario.redo()
+		_: return false
+
+
+func _refresh_after_global_history() -> void:
+	selected_instance_id = ""
+	if package.scenario != null:
 		_refresh_scenario_form()
-		if guidance_dialog.visible:_refresh_guidance()
-		if sequence_dialog.visible:_refresh_sequence_list()
-		if encounter_dialog.visible:_refresh_encounters()
-		if cinematic_dialog.visible:_refresh_cinematics()
-		refresh_all()
-	elif package.terrain != null and package.terrain.can_redo() and package.terrain.redo():
-		selected_instance_id = ""
-		refresh_all()
-	elif package.redo():
-		selected_instance_id = ""
-		refresh_all()
+		if guidance_dialog.visible: _refresh_guidance()
+		if sequence_dialog.visible: _refresh_sequence_list()
+		if encounter_dialog.visible: _refresh_encounters()
+		if cinematic_dialog.visible: _refresh_cinematics()
+	refresh_all()
 
 
 func save_package() -> void:
@@ -2764,7 +2953,7 @@ func request_open_package() -> void:
 func open_package(path: String) -> void:
 	if package.load_from_directory(path):
 		selected_instance_id = ""
-		cancel_placement()
+		_reset_terrain_session(true)
 		refresh_all()
 		var resource_failures: Array[String] = package.resource_errors()
 		status("Opened %s" % package.world.get("display_name", path) if resource_failures.is_empty() else " | ".join(resource_failures))
@@ -2792,6 +2981,7 @@ func discard_then_continue(action: StringName) -> void:
 	var current_path: String = package.package_path
 	if not current_path.is_empty():
 		package.load_from_directory(current_path)
+	_reset_terrain_session(true)
 	refresh_all()
 	if pending_after_save.is_valid():
 		pending_after_save.call()
@@ -2800,6 +2990,8 @@ func discard_then_continue(action: StringName) -> void:
 func _unhandled_key_input(event: InputEvent) -> void:
 	if not event is InputEventKey or not event.pressed or event.echo:
 		return
+	if event.keycode==KEY_ESCAPE and workflow_dialog.visible:
+		close_workflow_editor();get_viewport().set_input_as_handled();return
 	var focus := get_viewport().gui_get_focus_owner()
 	if focus is LineEdit or focus is TextEdit or focus is SpinBox:
 		return

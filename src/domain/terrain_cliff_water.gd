@@ -37,7 +37,7 @@ func add_ramp(x: int, z: int, direction: String) -> bool:
 		return false
 	var ramp := {"direction": direction, "x": x, "z": z}
 	var candidate: Dictionary = terrain.data.duplicate(true)
-	if ramp in candidate.cliffs.ramps:
+	if _ramp_matches(candidate.cliffs.ramps,x,z,direction):
 		return false
 	candidate.cliffs.ramps.append(ramp)
 	candidate.cliffs.ramps.sort_custom(func(a, b): return [a.z, a.x, a.direction] < [b.z, b.x, b.direction])
@@ -57,8 +57,7 @@ func water_class_at_cell(x: int, z: int) -> String:
 		return "dry"
 	var center_x := float(terrain.data.grid.origin_x_m) + (float(x) + 0.5) * float(terrain.data.grid.cell_size_m)
 	var center_z := float(terrain.data.grid.origin_z_m) + (float(z) + 0.5) * float(terrain.data.grid.cell_size_m)
-	var index := z * int(terrain.data.grid.width_cells) + x
-	var ground_cm := roundi(terrain.sample_height(center_x, center_z) * 100.0) + int(terrain.data.cliffs.levels[index]) * CLIFF_HEIGHT_CM
+	var ground_cm := roundi(terrain.effective_height(center_x, center_z) * 100.0)
 	var depth := int(terrain.data.water.level_cm) - ground_cm
 	if depth <= 0: return "dry"
 	if depth <= SHALLOW_MAX_CM: return "shallow"
@@ -78,12 +77,12 @@ func derived_shores() -> Array[Dictionary]:
 
 
 func edge_has_ramp(x: int, z: int, direction: String) -> bool:
-	if {"direction": direction, "x": x, "z": z} in terrain.data.cliffs.ramps:
+	if _ramp_matches(terrain.data.cliffs.ramps,x,z,direction):
 		return true
 	var reciprocal_direction: String = {"north": "south", "east": "west", "south": "north", "west": "east"}[direction]
 	var neighbor_x := x + (1 if direction == "east" else -1 if direction == "west" else 0)
 	var neighbor_z := z + (1 if direction == "south" else -1 if direction == "north" else 0)
-	return {"direction": reciprocal_direction, "x": neighbor_x, "z": neighbor_z} in terrain.data.cliffs.ramps
+	return _ramp_matches(terrain.data.cliffs.ramps,neighbor_x,neighbor_z,reciprocal_direction)
 
 
 func _valid_cell(x: int, z: int) -> bool:
@@ -104,4 +103,14 @@ func _legal_topology(candidate: Dictionary) -> bool:
 
 
 func _has_ramp(candidate: Dictionary, x: int, z: int, direction: String) -> bool:
-	return {"direction": direction, "x": x, "z": z} in candidate.cliffs.ramps
+	if _ramp_matches(candidate.cliffs.ramps,x,z,direction):return true
+	var opposite:String={"north":"south","east":"west","south":"north","west":"east"}[direction]
+	var nx:=x+(1 if direction=="east" else -1 if direction=="west" else 0)
+	var nz:=z+(1 if direction=="south" else -1 if direction=="north" else 0)
+	return _ramp_matches(candidate.cliffs.ramps,nx,nz,opposite)
+
+
+func _ramp_matches(ramps:Array,x:int,z:int,direction:String)->bool:
+	for ramp in ramps:
+		if ramp is Dictionary and str(ramp.get("direction",""))==direction and int(ramp.get("x",-1))==x and int(ramp.get("z",-1))==z:return true
+	return false

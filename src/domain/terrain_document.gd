@@ -1,6 +1,8 @@
 class_name TerrainDocument
 extends RefCounted
 
+const HistoryClock = preload("res://src/domain/history_clock.gd")
+
 const FORMAT_VERSION := 1
 const ALGORITHM_VERSION := 1
 const SUPPORTED_MIGRATIONS: Array[String] = []
@@ -242,6 +244,21 @@ func can_redo() -> bool:
 	return not redo_history.is_empty()
 
 
+func history_depth() -> int:
+	return history.size()
+
+
+func discard_redo_history() -> void:
+	redo_history.clear()
+
+
+func undo_transaction_ids() -> Array[int]:
+	var result: Array[int] = []
+	for entry in history:
+		result.append(int(entry.get("transaction_id", 0)))
+	return result
+
+
 func prospective_bounds(width_cells: int, depth_cells: int, anchor := "center") -> Rect2:
 	var offsets := _resize_offsets(int(data.grid.width_cells), int(data.grid.depth_cells), width_cells, depth_cells, anchor)
 	var cell_size := float(data.grid.cell_size_m)
@@ -350,6 +367,52 @@ func sample_height(world_x: float, world_z: float) -> float:
 	return lerpf(north, south, tz) / 100.0
 
 
+func effective_height(world_x:float,world_z:float)->float:
+	var grid:Dictionary=data.grid
+	var local_x:float=clampf((world_x-float(grid.origin_x_m))/float(grid.cell_size_m),0.0,float(grid.width_cells))
+	var local_z:float=clampf((world_z-float(grid.origin_z_m))/float(grid.cell_size_m),0.0,float(grid.depth_cells))
+	var x:=clampi(floori(local_x),0,int(grid.width_cells)-1)
+	var z:=clampi(floori(local_z),0,int(grid.depth_cells)-1)
+	var u:=local_x-float(x)
+	var v:=local_z-float(z)
+	var corners:=cell_corner_heights(x,z)
+	if u+v<=1.0:
+		return corners[0]+v*(corners[1]-corners[0])+u*(corners[2]-corners[0])
+	return corners[3]+(1.0-v)*(corners[2]-corners[3])+(1.0-u)*(corners[1]-corners[3])
+
+
+func cell_corner_heights(x:int,z:int,preview_heights_cm:Array=[])->Array[float]:
+	var width:=int(data.grid.width_cells)
+	var sample_width:=width+1
+	var cell:=cell_index(x,z)
+	var own_level:=int(data.cliffs.levels[cell])
+	var offsets:Array[float]=[]
+	for ignored in 4:offsets.append(float(own_level)*2.0)
+	_apply_lower_ramp_offset(offsets,x,z,"west",x-1,z,[0,1],own_level)
+	_apply_lower_ramp_offset(offsets,x,z,"east",x+1,z,[2,3],own_level)
+	_apply_lower_ramp_offset(offsets,x,z,"north",x,z-1,[0,2],own_level)
+	_apply_lower_ramp_offset(offsets,x,z,"south",x,z+1,[1,3],own_level)
+	var indices:Array[int]=[z*sample_width+x,(z+1)*sample_width+x,z*sample_width+x+1,(z+1)*sample_width+x+1]
+	var heights:Array=preview_heights_cm if preview_heights_cm.size()==4 else [data.grid.heights_cm[indices[0]],data.grid.heights_cm[indices[1]],data.grid.heights_cm[indices[2]],data.grid.heights_cm[indices[3]]]
+	return [float(heights[0])/100.0+offsets[0],float(heights[1])/100.0+offsets[1],float(heights[2])/100.0+offsets[2],float(heights[3])/100.0+offsets[3]]
+
+
+func _apply_lower_ramp_offset(offsets:Array[float],x:int,z:int,direction:String,nx:int,nz:int,corners:Array,own_level:int)->void:
+	if nx<0 or nz<0 or nx>=int(data.grid.width_cells) or nz>=int(data.grid.depth_cells):return
+	if not _edge_has_ramp(x,z,direction):return
+	var neighbor_level:=int(data.cliffs.levels[cell_index(nx,nz)])
+	if neighbor_level<=own_level:return
+	for corner in corners:offsets[int(corner)]=float(neighbor_level)*2.0
+
+
+func _edge_has_ramp(x:int,z:int,direction:String)->bool:
+	if _ramp_matches(data.cliffs.ramps,x,z,direction):return true
+	var opposite:String={"north":"south","east":"west","south":"north","west":"east"}[direction]
+	var nx:=x+(1 if direction=="east" else -1 if direction=="west" else 0)
+	var nz:=z+(1 if direction=="south" else -1 if direction=="north" else 0)
+	return _ramp_matches(data.cliffs.ramps,nx,nz,opposite)
+
+
 func cell_index(x: int, z: int) -> int:
 	return z * int(data.grid.width_cells) + x
 
@@ -436,10 +499,16 @@ func _validate_cliff_topology(candidate: Dictionary, failures: Array[String]) ->
 
 
 func _cliff_ramp_allows(ramps: Array, x: int, z: int, direction: String) -> bool:
-	if {"direction": direction, "x": x, "z": z} in ramps:
+	if _ramp_matches(ramps,x,z,direction):
 		return true
-	var reciprocal := {"direction": "west" if direction == "east" else "north", "x": x + (1 if direction == "east" else 0), "z": z + (1 if direction == "south" else 0)}
-	return reciprocal in ramps
+	var reciprocal_direction:="west" if direction=="east" else "north"
+	return _ramp_matches(ramps,x+(1 if direction=="east" else 0),z+(1 if direction=="south" else 0),reciprocal_direction)
+
+
+func _ramp_matches(ramps:Array,x:int,z:int,direction:String)->bool:
+	for ramp in ramps:
+		if ramp is Dictionary and str(ramp.get("direction",""))==direction and int(ramp.get("x",-1))==x and int(ramp.get("z",-1))==z:return true
+	return false
 
 
 func _validate_environment(environment:Dictionary,failures:Array[String])->void:
@@ -507,6 +576,7 @@ func _commit_history_entry(entry: Dictionary, apply_change: Callable) -> bool:
 		history_evicted = true
 	entry.before_revision = revision
 	entry.after_revision = _next_revision
+	entry.transaction_id = HistoryClock.claim()
 	_next_revision += 1
 	history.append(entry)
 	history_bytes += int(entry.bytes)

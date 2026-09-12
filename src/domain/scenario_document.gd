@@ -1,6 +1,8 @@
 class_name ScenarioDocument
 extends RefCounted
 
+const HistoryClock = preload("res://src/domain/history_clock.gd")
+
 const TerrainPathingScript:=preload("res://src/domain/terrain_pathing.gd")
 
 const FORMAT_VERSION := 1
@@ -16,6 +18,11 @@ var source_path := ""
 var dirty := false
 var history: Array[Dictionary] = []
 var redo_history: Array[Dictionary] = []
+var history_transaction_ids: Array[int] = []
+var redo_transaction_ids: Array[int] = []
+var revision:=0
+var saved_revision:=0
+var _next_revision:=1
 
 
 func load_from_file(path: String, world: Dictionary) -> bool:
@@ -26,14 +33,14 @@ func load_from_file(path: String, world: Dictionary) -> bool:
 	if not json.data is Dictionary: return _fail(["scenario.json: root must be an object"])
 	var failures := validate(json.data, world)
 	if not failures.is_empty(): return _fail(failures)
-	data = json.data.duplicate(true); source_path = path; dirty = false; history.clear(); redo_history.clear(); errors.clear(); return true
+	data=json.data.duplicate(true);source_path=path;dirty=false;history.clear();redo_history.clear();history_transaction_ids.clear();redo_transaction_ids.clear();revision=0;saved_revision=0;_next_revision=1;errors.clear();return true
 
 
 func create(scenario_id: String, title: String, description: String, player_faction_id: String, world: Dictionary) -> bool:
 	var candidate := {"scenario_format_version":FORMAT_VERSION,"scenario_id":scenario_id,"title":title,"description":description,"player_faction_id":player_faction_id,"visibility":{"fog_enabled":true,"explored_radius_m":8.0,"hidden_by_default":true},"regions":[],"unit_groups":[],"objectives":[],"tutorials":[],"encounters":[],"cinematics":[],"sequences":[]}
 	var failures := validate(candidate, world)
 	if not failures.is_empty(): return _fail(failures)
-	data = candidate; dirty = true; history.clear(); redo_history.clear(); errors.clear(); return true
+	data=candidate;revision=1;saved_revision=0;_next_revision=2;dirty=true;history.clear();redo_history.clear();history_transaction_ids.clear();redo_transaction_ids.clear();errors.clear();return true
 
 
 func create_guided_mission_template(scenario_id:String,world:Dictionary,definitions:Array[Dictionary],terrain=null)->bool:
@@ -95,7 +102,7 @@ func create_guided_mission_template(scenario_id:String,world:Dictionary,definiti
 	_find(candidate.sequences,"sequence_id","approach_final_encounter").actions.append({"type":"set_encounter","group_id":"encounter_two","state":"active","behavior":"guard","leash_region_id":"encounter_two_bounds"})
 	if tutorials.any(func(value):return value.tutorial_id=="use_signature_ability"):_find(candidate.sequences,"sequence_id","approach_final_encounter").actions[0]={"type":"show_tutorial","tutorial_id":"use_signature_ability"}
 	var failures:=validate(candidate,world);if not failures.is_empty():return _fail(failures)
-	data=candidate;dirty=true;history.clear();redo_history.clear();errors.clear();return true
+	data=candidate;revision=1;saved_revision=0;_next_revision=2;dirty=true;history.clear();redo_history.clear();history_transaction_ids.clear();redo_transaction_ids.clear();errors.clear();return true
 
 
 func _project_to_reachable(candidate:Vector2,terrain,reachable:Dictionary,direction:=Vector2.ZERO,minimum_projection:=-INF)->Array:
@@ -415,13 +422,16 @@ func region_references(region_id: String) -> Array[String]:
 
 func undo() -> bool:
 	if history.is_empty(): return false
-	redo_history.append(data.duplicate(true)); data = history.pop_back(); dirty = true; return true
+	var entry:Dictionary=history.pop_back();redo_history.append({"state":data.duplicate(true),"revision":revision});redo_transaction_ids.append(history_transaction_ids.pop_back());data=entry.state.duplicate(true);revision=int(entry.revision);dirty=revision!=saved_revision;return true
 func redo() -> bool:
 	if redo_history.is_empty(): return false
-	history.append(data.duplicate(true)); data = redo_history.pop_back(); dirty = true; return true
+	var entry:Dictionary=redo_history.pop_back();history.append({"state":data.duplicate(true),"revision":revision});history_transaction_ids.append(redo_transaction_ids.pop_back());data=entry.state.duplicate(true);revision=int(entry.revision);dirty=revision!=saved_revision;return true
 func can_undo() -> bool: return not history.is_empty()
 func can_redo() -> bool: return not redo_history.is_empty()
-func mark_saved(path: String) -> void: source_path = path; dirty = false
+func history_depth() -> int: return history.size()
+func discard_redo_history() -> void: redo_history.clear(); redo_transaction_ids.clear()
+func undo_transaction_ids() -> Array[int]: return history_transaction_ids.duplicate()
+func mark_saved(path: String) -> void: source_path=path;saved_revision=revision;dirty=false
 
 
 func validate(candidate: Dictionary, world: Dictionary) -> Array[String]:
@@ -466,7 +476,7 @@ func content_hash() -> String: return canonical_text().sha256_text()
 func _commit(candidate: Dictionary, world: Dictionary) -> bool:
 	var failures := validate(candidate, world)
 	if not failures.is_empty(): return _fail(failures)
-	history.append(data.duplicate(true)); redo_history.clear(); data = candidate; dirty = true; errors.clear(); return true
+	history.append({"state":data.duplicate(true),"revision":revision});history_transaction_ids.append(HistoryClock.claim());redo_history.clear();redo_transaction_ids.clear();data=candidate;revision=_next_revision;_next_revision+=1;dirty=revision!=saved_revision;errors.clear();return true
 
 
 func remove_invalid_collection_entry(collection:String,index:int,world:Dictionary)->bool:
@@ -475,7 +485,7 @@ func remove_invalid_collection_entry(collection:String,index:int,world:Dictionar
 	if not values is Array or index<0 or index>=values.size():return _fail(["Invalid recovery entry index"])
 	var prefix:="scenario.json.%s[%d]"%[collection,index];var current_failures:=validate(data,world)
 	if not current_failures.any(func(message):return str(message).begins_with(prefix)):return _fail(["Entry %d is not malformed"%(index+1)])
-	history.append(data.duplicate(true));redo_history.clear();data[collection].remove_at(index);dirty=true;errors=validate(data,world);return true
+	history.append({"state":data.duplicate(true),"revision":revision});history_transaction_ids.append(HistoryClock.claim());redo_history.clear();redo_transaction_ids.clear();data[collection].remove_at(index);revision=_next_revision;_next_revision+=1;dirty=revision!=saved_revision;errors=validate(data,world);return true
 
 
 func _find(values: Array, field: String, id: String) -> Dictionary:
