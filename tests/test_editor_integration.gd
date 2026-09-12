@@ -20,6 +20,9 @@ func run() -> void:
 	_check(editor.world_root.get_node_or_null("crimsdale_house_001") != null, "House preview is created")
 	_check(editor.definition_list.item_count == 8, "Object Editor lists world, unit, ability, and item definitions")
 	_check(editor.terrain_dialog != null and editor.terrain_fields.size() == 6, "Terrain workflow exposes explicit dimensions, resolution, height, and origin")
+	_check(_has_visible_label(editor.scenario_fields.title,"Title") and editor.scenario_fields.title.accessibility_name=="Title" and _has_visible_label(editor.scenario_region_fields.x1,"First point X (metres)"),"Scenario fields retain visible labels and accessibility names after values are populated")
+	_check(_has_visible_label(editor.definition_id_field,"Stable definition ID") and editor.definition_category.accessibility_name=="Category" and editor.definition_owner.accessibility_name=="Owner","Object fields and dropdowns expose persistent visible/accessibility labels")
+	editor.test_world_executable_field.text="/tools/Godot_v4.7.1-stable_linux.x86_64";editor.test_world_project_field.text="";editor.launch_test_world();_check(editor.test_world_setup_dialog.visible and "project folder" in editor.status_label.text.to_lower(),"Godot source launch opens actionable setup when Frontier/Game is missing");editor.test_world_setup_dialog.hide()
 	editor.terrain_fields.width_cells.text = "8"
 	editor.terrain_fields.depth_cells.text = "8"
 	editor.terrain_fields.cell_size_m.text = "1"
@@ -108,6 +111,7 @@ func run() -> void:
 			if editor.cinematic_step_type.get_item_metadata(type_index)=="camera":editor.cinematic_step_type.select(type_index);editor._refresh_cinematic_step_fields();break
 		_check(editor.cinematic_field_labels.a.text=="Camera region ID" and editor.cinematic_field_rows.number_2.visible and not editor.cinematic_field_rows.b.visible,"Camera beats expose only region and timing controls")
 		editor.cinematic_step_list.select(0);editor._scrub_cinematic(0);editor.cinematic_fields.text.text="The safe road is beyond the ridge.";editor._update_cinematic_step();_check(editor.package.scenario.data.cinematics[0].steps[0].text=="The safe road is beyond the ridge.","Selecting and updating an existing cinematic beat preserves its timeline position")
+		var cinematic_bottom:float=float(editor.cinematic_dialog.position.y+editor.cinematic_dialog.size.y);_check(editor.cinematic_update_step_button.get_global_rect().end.y<=cinematic_bottom and editor.cinematic_play_preview_button.get_global_rect().end.y<=cinematic_bottom,"Cinematic update and preview controls fit the initial 1280x720 dialog view without scrolling")
 	editor.show_sequence_editor()
 	editor.sequence_fields.sequence_id.text = "mission_start"
 	editor._create_sequence()
@@ -196,3 +200,8 @@ func _finding_index(editor,needle:String)->int:
 	for index in editor.validation_list.item_count:
 		if needle in str(editor.validation_list.get_item_metadata(index).get("message","")):return index
 	return -1
+
+
+func _has_visible_label(field:LineEdit,text:String)->bool:
+	var row=field.get_parent()
+	return row is VBoxContainer and row.get_child_count()>=2 and row.get_child(0) is Label and row.get_child(0).text==text and row.get_child(0).visible

@@ -117,6 +117,11 @@ var cinematic_preview:RichTextLabel
 var validation_dialog:Window
 var validation_summary:Label
 var validation_list:ItemList
+var test_world_setup_dialog:Window
+var test_world_executable_field:LineEdit
+var test_world_project_field:LineEdit
+var cinematic_update_step_button:Button
+var cinematic_play_preview_button:Button
 var pending_after_save: Callable
 var definition_list: ItemList
 var definition_id_field: LineEdit
@@ -160,6 +165,7 @@ func _ready() -> void:
 	_build_encounter_editor()
 	_build_cinematic_editor()
 	_build_validation_results()
+	_build_test_world_setup()
 	_build_object_editor()
 	_build_terrain_editor()
 	_build_package_dialogs()
@@ -197,6 +203,7 @@ func _build_toolbar() -> void:
 	_add_button(bar, "Undo", perform_undo)
 	_add_button(bar, "Redo", perform_redo)
 	_add_button(bar, "Save", save_package)
+	_add_button(bar, "Test Setup…", show_test_world_setup)
 	_add_button(bar, "Test World ▶", test_world)
 
 
@@ -830,8 +837,8 @@ func _build_scenario_editor() -> void:
 	var scroll := ScrollContainer.new(); scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT); scroll.offset_left = 18; scroll.offset_top = 18; scroll.offset_right = -18; scroll.offset_bottom = -18; scenario_dialog.add_child(scroll)
 	var form := VBoxContainer.new(); form.size_flags_horizontal = Control.SIZE_EXPAND_FILL; scroll.add_child(form)
 	var help := Label.new(); help.text = "Scenario data is portable and saved with the world. Regions use world metres: point (one position), rectangle (opposite corners), or path (ordered endpoints in this increment). IDs become stable references."; help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; form.add_child(help)
-	for field in ["scenario_id","title","description","player_faction_id"]: scenario_fields[field] = _add_field(form, field.replace("_", " ").capitalize())
-	for field in ["fog_enabled","explored_radius_m","hidden_by_default"]:scenario_fields[field]=_add_field(form,field.replace("_"," ").capitalize())
+	for field in ["scenario_id","title","description","player_faction_id"]: scenario_fields[field] = _add_labeled_field(form, field.replace("_", " ").capitalize())
+	for field in ["fog_enabled","explored_radius_m","hidden_by_default"]:scenario_fields[field]=_add_labeled_field(form,field.replace("_"," ").capitalize())
 	scenario_fields.scenario_id.editable = false
 	_add_button(form, "Create Scenario", _create_scenario)
 	_add_button(form, "Create Guided Mission Template", _create_guided_mission_template)
@@ -842,12 +849,12 @@ func _build_scenario_editor() -> void:
 	_add_button(form, "Open Sequences…", show_sequence_editor)
 	_add_button(form, "Remove Scenario…", func(): scenario_remove_confirmation.popup_centered())
 	var divider := HSeparator.new(); form.add_child(divider)
-	scenario_region_list = ItemList.new(); scenario_region_list.custom_minimum_size.y = 150; scenario_region_list.item_selected.connect(_load_scenario_region); form.add_child(scenario_region_list)
-	for field in ["region_id","display_name"]: scenario_region_fields[field] = _add_field(form, field.replace("_", " ").capitalize())
+	scenario_region_list = ItemList.new();scenario_region_list.accessibility_name="Scenario regions, alphabetized by stable ID";scenario_region_list.custom_minimum_size.y = 150; scenario_region_list.item_selected.connect(_load_scenario_region); form.add_child(scenario_region_list)
+	for field in ["region_id","display_name"]: scenario_region_fields[field] = _add_labeled_field(form, field.replace("_", " ").capitalize())
 	scenario_region_shape = OptionButton.new()
 	for shape in ["point","rectangle","path"]: scenario_region_shape.add_item(shape.capitalize()); scenario_region_shape.set_item_metadata(scenario_region_shape.item_count - 1, shape)
-	form.add_child(scenario_region_shape)
-	for field in ["x1","z1","x2","z2"]: scenario_region_fields[field] = _add_field(form, field.to_upper())
+	_label_control(form,"Region shape",scenario_region_shape);form.add_child(scenario_region_shape)
+	for field in ["x1","z1","x2","z2"]: scenario_region_fields[field] = _add_labeled_field(form, {"x1":"First point X (metres)","z1":"First point Z (metres)","x2":"Second point X (metres)","z2":"Second point Z (metres)"}[field])
 	_add_button(form, "Add Region", _add_scenario_region)
 	_add_button(form, "Update Selected Region", _update_scenario_region)
 	_add_button(form, "Reverse Selected Path", _reverse_scenario_path)
@@ -860,15 +867,15 @@ func _build_sequence_editor() -> void:
 	var scroll := ScrollContainer.new(); scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT); scroll.offset_left=18; scroll.offset_top=18; scroll.offset_right=-18; scroll.offset_bottom=-18; sequence_dialog.add_child(scroll)
 	var form := VBoxContainer.new(); form.size_flags_horizontal=Control.SIZE_EXPAND_FILL; scroll.add_child(form)
 	var help := Label.new(); help.text="Create typed event-condition-action sequences. Equal-frame sequences run by stable ID; actions run top to bottom. A duplicated sequence starts disabled for safe review."; help.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART; form.add_child(help)
-	sequence_list=ItemList.new(); sequence_list.custom_minimum_size.y=130; sequence_list.item_selected.connect(_load_sequence); form.add_child(sequence_list)
-	for field in ["sequence_id","a","b","c","text","number"]: sequence_fields[field]=_add_field(form, {"sequence_id":"Sequence ID","a":"Reference A","b":"Reference / value B","c":"Reference / value C","text":"Message text","number":"Duration / number"}[field])
+	sequence_list=ItemList.new();sequence_list.accessibility_name="Scenario sequences";sequence_list.custom_minimum_size.y=130; sequence_list.item_selected.connect(_load_sequence); form.add_child(sequence_list)
+	for field in ["sequence_id","a","b","c","text","number"]: sequence_fields[field]=_add_labeled_field(form, {"sequence_id":"Sequence ID","a":"Reference A","b":"Reference / value B","c":"Reference / value C","text":"Message text","number":"Duration / number"}[field])
 	sequence_fields.number.text="2"
 	var flags:=HBoxContainer.new(); form.add_child(flags)
 	var enabled:=CheckBox.new(); enabled.text="Enabled"; enabled.button_pressed=true; flags.add_child(enabled); sequence_fields.enabled=enabled
 	var one_shot:=CheckBox.new(); one_shot.text="One shot"; one_shot.button_pressed=true; flags.add_child(one_shot); sequence_fields.one_shot=one_shot
 	sequence_event_type=OptionButton.new()
 	for type in ScenarioDocumentScript.EVENTS: sequence_event_type.add_item(type.replace("_"," ").capitalize()); sequence_event_type.set_item_metadata(sequence_event_type.item_count-1,type)
-	sequence_event_type.item_selected.connect(func(_index): _update_sequence_signature("event")); form.add_child(sequence_event_type)
+	sequence_event_type.item_selected.connect(func(_index): _update_sequence_signature("event"));_label_control(form,"Event type",sequence_event_type);form.add_child(sequence_event_type)
 	_add_button(form,"Create Sequence",_create_sequence); _add_button(form,"Apply Event / Flags",_apply_sequence_event); _add_button(form,"Duplicate Selected",_duplicate_sequence); _add_button(form,"Delete Selected",_delete_sequence)
 	sequence_signature=Label.new(); sequence_signature.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART; form.add_child(sequence_signature)
 	var split:=HBoxContainer.new(); form.add_child(split)
@@ -876,14 +883,14 @@ func _build_sequence_editor() -> void:
 	var conditions_label:=Label.new(); conditions_label.text="Conditions"; conditions_box.add_child(conditions_label)
 	sequence_condition_type=OptionButton.new()
 	for type in ScenarioDocumentScript.CONDITIONS: sequence_condition_type.add_item(type.replace("_"," ").capitalize()); sequence_condition_type.set_item_metadata(sequence_condition_type.item_count-1,type)
-	sequence_condition_type.item_selected.connect(func(_index): _update_sequence_signature("condition")); conditions_box.add_child(sequence_condition_type)
+	sequence_condition_type.item_selected.connect(func(_index): _update_sequence_signature("condition"));_label_control(conditions_box,"Condition type",sequence_condition_type);conditions_box.add_child(sequence_condition_type)
 	sequence_conditions=ItemList.new(); sequence_conditions.custom_minimum_size=Vector2(330,120); conditions_box.add_child(sequence_conditions)
 	_add_button(conditions_box,"Add Condition",_add_sequence_condition); _add_button(conditions_box,"Remove Condition",_remove_sequence_condition)
 	var actions_box:=VBoxContainer.new(); actions_box.size_flags_horizontal=Control.SIZE_EXPAND_FILL; split.add_child(actions_box)
 	var actions_label:=Label.new(); actions_label.text="Actions"; actions_box.add_child(actions_label)
 	sequence_action_type=OptionButton.new()
 	for type in ScenarioDocumentScript.ACTIONS: sequence_action_type.add_item(type.replace("_"," ").capitalize()); sequence_action_type.set_item_metadata(sequence_action_type.item_count-1,type)
-	sequence_action_type.item_selected.connect(func(_index): _update_sequence_signature("action")); actions_box.add_child(sequence_action_type)
+	sequence_action_type.item_selected.connect(func(_index): _update_sequence_signature("action"));_label_control(actions_box,"Action type",sequence_action_type);actions_box.add_child(sequence_action_type)
 	sequence_actions=ItemList.new(); sequence_actions.custom_minimum_size=Vector2(330,120); actions_box.add_child(sequence_actions)
 	_add_button(actions_box,"Add Action",_add_sequence_action); _add_button(actions_box,"Move Action Up",func():_move_sequence_action(-1)); _add_button(actions_box,"Move Action Down",func():_move_sequence_action(1)); _add_button(actions_box,"Remove Action",_remove_sequence_action)
 	_add_button(form,"Validate Flow",_validate_sequence_flow)
@@ -898,21 +905,38 @@ func _build_validation_results()->void:
 	_add_button(form,"Open Selected Finding",_open_selected_validation_finding)
 
 
+func _build_test_world_setup()->void:
+	test_world_setup_dialog=Window.new();test_world_setup_dialog.title="Test World Setup";test_world_setup_dialog.size=Vector2i(720,560);test_world_setup_dialog.close_requested.connect(test_world_setup_dialog.hide);test_world_setup_dialog.visible=false;add_child(test_world_setup_dialog)
+	var form:=VBoxContainer.new();form.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT);form.offset_left=18;form.offset_top=18;form.offset_right=-18;form.offset_bottom=-18;test_world_setup_dialog.add_child(form)
+	var help:=Label.new();help.text="Choose one launch mode. Source review: select the Godot 4.7.1 executable and Frontier's Game folder. Exported build: select Frontier.exe and leave the project folder empty. These values apply to this editor session; FRONTIER_EXECUTABLE and FRONTIER_PROJECT_PATH remain supported defaults.";help.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;form.add_child(help)
+	test_world_executable_field=_add_labeled_field(form,"Frontier executable or Godot 4.7.1 executable")
+	test_world_project_field=_add_labeled_field(form,"Frontier project folder (source review only, ending in Frontier/Game)")
+	var example:=Label.new();example.text="Source example\nExecutable: /full/path/Godot_v4.7.1-stable_linux.x86_64\nProject folder: /full/path/Frontier/Game\n\nExported example\nExecutable: C:\\Games\\Frontier\\Frontier.exe\nProject folder: leave empty";example.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;form.add_child(example)
+	var buttons:=HBoxContainer.new();form.add_child(buttons);_add_button(buttons,"Use These Values",func():test_world_setup_dialog.hide();status("Test World setup saved for this editor session"));_add_button(buttons,"Launch Test World",func():test_world_setup_dialog.hide();test_world())
+
+
+func show_test_world_setup(message:="")->void:
+	if test_world_executable_field.text.is_empty():test_world_executable_field.text=OS.get_environment("FRONTIER_EXECUTABLE")
+	if test_world_project_field.text.is_empty():test_world_project_field.text=OS.get_environment("FRONTIER_PROJECT_PATH")
+	if not str(message).is_empty():status(str(message))
+	test_world_setup_dialog.popup_centered()
+
+
 func _build_guidance_editor() -> void:
 	guidance_dialog=Window.new();guidance_dialog.title="Scenario Editor — Objectives & Guidance";guidance_dialog.size=Vector2i(760,680);guidance_dialog.close_requested.connect(guidance_dialog.hide);guidance_dialog.visible=false;add_child(guidance_dialog)
 	var scroll:=ScrollContainer.new();scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT);scroll.offset_left=18;scroll.offset_top=18;scroll.offset_right=-18;scroll.offset_bottom=-18;guidance_dialog.add_child(scroll)
 	var form:=VBoxContainer.new();form.size_flags_horizontal=Control.SIZE_EXPAND_FILL;scroll.add_child(form)
 	var help:=Label.new();help.text="Build the mission path as ordered objective steps. A step may point to a checkpoint region. Reusable tutorial prompts can mark the world or viewport and are shown by typed sequence actions.";help.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;form.add_child(help)
 	var heading:=Label.new();heading.text="Objectives";form.add_child(heading)
-	objective_list=ItemList.new();objective_list.custom_minimum_size.y=115;objective_list.item_selected.connect(_load_objective);form.add_child(objective_list)
-	for field in ["objective_id","title","kind","initial_state","step_id","step_title","checkpoint_region_id"]:objective_fields[field]=_add_field(form,field.replace("_"," ").capitalize())
+	objective_list=ItemList.new();objective_list.accessibility_name="Mission objectives";objective_list.custom_minimum_size.y=115;objective_list.item_selected.connect(_load_objective);form.add_child(objective_list)
+	for field in ["objective_id","title","kind","initial_state","step_id","step_title","checkpoint_region_id"]:objective_fields[field]=_add_labeled_field(form,field.replace("_"," ").capitalize())
 	objective_fields.kind.text="main";objective_fields.initial_state.text="active"
 	_add_button(form,"Add Objective",_add_objective);_add_button(form,"Update Selected Objective",_update_objective);_add_button(form,"Delete Selected Objective",_delete_objective)
-	objective_step_list=ItemList.new();objective_step_list.custom_minimum_size.y=105;form.add_child(objective_step_list)
+	objective_step_list=ItemList.new();objective_step_list.accessibility_name="Selected objective steps";objective_step_list.custom_minimum_size.y=105;form.add_child(objective_step_list)
 	_add_button(form,"Add Step",_add_objective_step);_add_button(form,"Move Step Up",func():_move_objective_step(-1));_add_button(form,"Move Step Down",func():_move_objective_step(1));_add_button(form,"Delete Selected Step",_delete_objective_step)
 	form.add_child(HSeparator.new());heading=Label.new();heading.text="Tutorial guidance";form.add_child(heading)
-	tutorial_list=ItemList.new();tutorial_list.custom_minimum_size.y=115;tutorial_list.item_selected.connect(_load_tutorial);form.add_child(tutorial_list)
-	for field in ["tutorial_id","text","control","indicator","acknowledgement","region_id","highlight","gates_sequence_id"]:tutorial_fields[field]=_add_field(form,field.replace("_"," ").capitalize())
+	tutorial_list=ItemList.new();tutorial_list.accessibility_name="Mission guidance prompts";tutorial_list.custom_minimum_size.y=115;tutorial_list.item_selected.connect(_load_tutorial);form.add_child(tutorial_list)
+	for field in ["tutorial_id","text","control","indicator","acknowledgement","region_id","highlight","gates_sequence_id"]:tutorial_fields[field]=_add_labeled_field(form,field.replace("_"," ").capitalize())
 	tutorial_fields.control.text="move";tutorial_fields.indicator.text="both";tutorial_fields.acknowledgement.text="input"
 	_add_button(form,"Add Tutorial",_add_tutorial);_add_button(form,"Update Selected Tutorial",_update_tutorial);_add_button(form,"Delete Selected Tutorial",_delete_tutorial)
 	_add_button(form,"Preview Mission Guidance",_preview_guidance)
@@ -924,27 +948,27 @@ func _build_encounter_editor()->void:
 	var scroll:=ScrollContainer.new();scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT);scroll.offset_left=18;scroll.offset_top=18;scroll.offset_right=-18;scroll.offset_bottom=-18;encounter_dialog.add_child(scroll)
 	var form:=VBoxContainer.new();form.size_flags_horizontal=Control.SIZE_EXPAND_FILL;scroll.add_child(form)
 	var help:=Label.new();help.text="Groups reference placed unit Instance IDs. Recruit allies with Set Ownership in Sequences. Encounters stay dormant until a region-entry or prior-completion sequence applies Set Encounter.";help.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;form.add_child(help)
-	var heading:=Label.new();heading.text="Unit groups";form.add_child(heading);group_list=ItemList.new();group_list.custom_minimum_size.y=110;group_list.item_selected.connect(_load_group);form.add_child(group_list)
-	group_fields.group_id=_add_field(form,"Group ID");group_fields.instance_ids=_add_field(form,"Placed Instance IDs (comma separated)")
+	var heading:=Label.new();heading.text="Unit groups";form.add_child(heading);group_list=ItemList.new();group_list.accessibility_name="Scenario unit groups";group_list.custom_minimum_size.y=110;group_list.item_selected.connect(_load_group);form.add_child(group_list)
+	group_fields.group_id=_add_labeled_field(form,"Group ID");group_fields.instance_ids=_add_labeled_field(form,"Placed Instance IDs (comma separated)")
 	_add_button(form,"Add Group",_add_group);_add_button(form,"Update Selected Group",_update_group);_add_button(form,"Delete Selected Group",_delete_group)
-	form.add_child(HSeparator.new());heading=Label.new();heading.text="Staged encounters";form.add_child(heading);encounter_list=ItemList.new();encounter_list.custom_minimum_size.y=110;encounter_list.item_selected.connect(_load_encounter);form.add_child(encounter_list)
-	for field in ["encounter_id","group_id","initial_state","behavior","leash_region_id","patrol_path_region_id","completion","reinforcement_group_ids"]:encounter_fields[field]=_add_field(form,field.replace("_"," ").capitalize())
+	form.add_child(HSeparator.new());heading=Label.new();heading.text="Staged encounters";form.add_child(heading);encounter_list=ItemList.new();encounter_list.accessibility_name="Staged encounters";encounter_list.custom_minimum_size.y=110;encounter_list.item_selected.connect(_load_encounter);form.add_child(encounter_list)
+	for field in ["encounter_id","group_id","initial_state","behavior","leash_region_id","patrol_path_region_id","completion","reinforcement_group_ids"]:encounter_fields[field]=_add_labeled_field(form,field.replace("_"," ").capitalize())
 	encounter_fields.initial_state.text="inactive";encounter_fields.behavior.text="sleep";encounter_fields.completion.text="all_defeated"
 	_add_button(form,"Add Encounter",_add_encounter);_add_button(form,"Update Selected Encounter",_update_encounter);_add_button(form,"Delete Selected Encounter",_delete_encounter);_add_button(form,"Preview Staging",_preview_encounters)
 	encounter_preview=RichTextLabel.new();encounter_preview.fit_content=true;encounter_preview.custom_minimum_size.y=120;form.add_child(encounter_preview)
 
 
 func _build_cinematic_editor()->void:
-	cinematic_dialog=Window.new();cinematic_dialog.title="Scenario Editor — Cinematics";cinematic_dialog.size=Vector2i(760,680);cinematic_dialog.close_requested.connect(cinematic_dialog.hide);cinematic_dialog.visible=false;add_child(cinematic_dialog)
+	cinematic_dialog=Window.new();cinematic_dialog.title="Scenario Editor — Cinematics";cinematic_dialog.size=Vector2i(880,680);cinematic_dialog.close_requested.connect(cinematic_dialog.hide);cinematic_dialog.visible=false;add_child(cinematic_dialog)
 	var scroll:=ScrollContainer.new();scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT);scroll.offset_left=18;scroll.offset_top=18;scroll.offset_right=-18;scroll.offset_bottom=-18;cinematic_dialog.add_child(scroll)
 	var form:=VBoxContainer.new();form.size_flags_horizontal=Control.SIZE_EXPAND_FILL;scroll.add_child(form)
 	var help:=Label.new();help.text="Choose an opening or ending, then add or update its ordered shots. Dialogue always includes a subtitle; audio is optional. Select a timeline row to edit it or preview that beat.";help.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;form.add_child(help)
-	cinematic_list=ItemList.new();cinematic_list.custom_minimum_size.y=110;cinematic_list.item_selected.connect(_load_cinematic);form.add_child(cinematic_list)
+	cinematic_list=ItemList.new();cinematic_list.accessibility_name="Cinematics";cinematic_list.custom_minimum_size.y=72;cinematic_list.item_selected.connect(_load_cinematic);form.add_child(cinematic_list)
 	var id_label:=Label.new();id_label.text="Cinematic stable ID";form.add_child(id_label);cinematic_fields.cinematic_id=_add_field(form,"opening")
 	var flags:=HBoxContainer.new();form.add_child(flags)
 	for field in ["skippable","letterbox","control_lock"]:
 		var toggle:=CheckBox.new();toggle.text={"skippable":"Escape can skip","letterbox":"Show letterbox","control_lock":"Lock gameplay controls"}[field];toggle.button_pressed=true;flags.add_child(toggle);cinematic_fields[field]=toggle
-	_add_button(form,"Add Cinematic",_add_cinematic);_add_button(form,"Update Playback Flags",_update_cinematic);_add_button(form,"Delete Cinematic",_delete_cinematic)
+	var cinematic_buttons:=HBoxContainer.new();form.add_child(cinematic_buttons);_add_button(cinematic_buttons,"Add Cinematic",_add_cinematic);_add_button(cinematic_buttons,"Update Playback Flags",_update_cinematic);_add_button(cinematic_buttons,"Delete Cinematic",_delete_cinematic)
 	var step_heading:=Label.new();step_heading.text="Timeline step type";form.add_child(step_heading)
 	cinematic_step_type=OptionButton.new()
 	for type in ScenarioDocumentScript.CINEMATIC_STEPS:
@@ -956,10 +980,10 @@ func _build_cinematic_editor()->void:
 		var label:=Label.new();label.custom_minimum_size.x=160;row.add_child(label);cinematic_field_labels[field]=label
 		var input:=LineEdit.new();input.size_flags_horizontal=Control.SIZE_EXPAND_FILL;row.add_child(input);cinematic_fields[field]=input
 	cinematic_fields.number.text="3";cinematic_fields.number_2.text="0.5";_refresh_cinematic_step_fields()
-	cinematic_step_list=ItemList.new();cinematic_step_list.custom_minimum_size.y=150;cinematic_step_list.item_selected.connect(_scrub_cinematic);form.add_child(cinematic_step_list)
-	_add_button(form,"Add Timeline Step",_add_cinematic_step);_add_button(form,"Update Selected Step",_update_cinematic_step);_add_button(form,"Move Step Up",func():_move_cinematic_step(-1));_add_button(form,"Move Step Down",func():_move_cinematic_step(1));_add_button(form,"Delete Step",_delete_cinematic_step)
+	cinematic_step_list=ItemList.new();cinematic_step_list.accessibility_name="Selected cinematic timeline";cinematic_step_list.custom_minimum_size.y=100;cinematic_step_list.item_selected.connect(_scrub_cinematic);form.add_child(cinematic_step_list)
+	var step_buttons:=HBoxContainer.new();form.add_child(step_buttons);_add_button(step_buttons,"Add Step",_add_cinematic_step);cinematic_update_step_button=_add_button(step_buttons,"Update Selected Step",_update_cinematic_step);_add_button(step_buttons,"Move Up",func():_move_cinematic_step(-1));_add_button(step_buttons,"Move Down",func():_move_cinematic_step(1));_add_button(step_buttons,"Delete Step",_delete_cinematic_step)
 	var playback:=HBoxContainer.new();form.add_child(playback);_add_button(playback,"Play Preview",_play_cinematic_preview);_add_button(playback,"Skip Preview",_skip_cinematic_preview);_add_button(playback,"Validate",_validate_cinematic_preview)
-	cinematic_preview=RichTextLabel.new();cinematic_preview.fit_content=true;cinematic_preview.custom_minimum_size.y=110;form.add_child(cinematic_preview)
+	cinematic_play_preview_button=playback.get_child(0);cinematic_preview=RichTextLabel.new();cinematic_preview.fit_content=true;cinematic_preview.custom_minimum_size.y=64;form.add_child(cinematic_preview)
 
 
 func show_cinematic_editor()->void:
@@ -1041,7 +1065,7 @@ func _refresh_cinematic_step_fields()->void:
 	}[type]
 	for key in cinematic_field_rows:
 		cinematic_field_rows[key].visible=specs.has(key)
-		if specs.has(key):cinematic_field_labels[key].text=specs[key];cinematic_fields[key].placeholder_text=specs[key]
+		if specs.has(key):cinematic_field_labels[key].text=specs[key];cinematic_fields[key].placeholder_text=specs[key];cinematic_fields[key].accessibility_name=specs[key]
 
 
 func _cinematic_step_summary(step)->String:
@@ -2235,8 +2259,10 @@ func _build_object_editor() -> void:
 	root.add_child(navigation)
 	var search := LineEdit.new()
 	search.placeholder_text = "Search definitions"
+	search.accessibility_name = "Search object definitions"
 	navigation.add_child(search)
 	definition_list = ItemList.new()
+	definition_list.accessibility_name = "Object definitions"
 	definition_list.custom_minimum_size.x = 330
 	definition_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	definition_list.item_selected.connect(load_definition_form)
@@ -2249,14 +2275,14 @@ func _build_object_editor() -> void:
 	var form := VBoxContainer.new()
 	form.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	form_scroll.add_child(form)
-	definition_id_field = _add_field(form, "Stable definition ID")
-	definition_name = _add_field(form, "Display name")
+	definition_id_field = _add_labeled_field(form, "Stable definition ID")
+	definition_name = _add_labeled_field(form, "Display name")
 	definition_category = OptionButton.new()
 	for category in WorldPackageScript.CATEGORIES:
 		definition_category.add_item(category)
-	form.add_child(definition_category)
+	_label_control(form,"Category",definition_category);form.add_child(definition_category)
 	definition_category.item_selected.connect(func(_index): refresh_unit_field_visibility())
-	definition_scene = _add_field(form, "Scene path")
+	definition_scene = _add_labeled_field(form, "Scene path")
 	var unit_heading := Label.new()
 	unit_heading.text = "UNIT GAMEPLAY"
 	form.add_child(unit_heading)
@@ -2264,18 +2290,18 @@ func _build_object_editor() -> void:
 	definition_owner = OptionButton.new()
 	for owner in WorldPackageScript.OWNERS:
 		definition_owner.add_item(owner)
-	form.add_child(definition_owner)
-	unit_section_controls.append(definition_owner)
+	var owner_label:=_label_control(form,"Owner",definition_owner);form.add_child(definition_owner)
+	unit_section_controls.append(owner_label);unit_section_controls.append(definition_owner)
 	for field in WorldPackageScript.UNIT_FIELDS:
 		if field != "owner":
-			unit_fields[field] = _add_field(form, field.replace("_", " ").capitalize())
-			unit_section_controls.append(unit_fields[field])
+			unit_fields[field] = _add_labeled_field(form, field.replace("_", " ").capitalize())
+			unit_section_controls.append(_field_row(unit_fields[field]))
 	var hero_heading:=Label.new();hero_heading.text="HERO, ABILITIES & INVENTORY";form.add_child(hero_heading);hero_section_controls.append(hero_heading)
-	for field in WorldPackageScript.HERO_FIELDS:hero_fields[field]=_add_field(form,field.replace("_"," ").capitalize());hero_section_controls.append(hero_fields[field])
+	for field in WorldPackageScript.HERO_FIELDS:hero_fields[field]=_add_labeled_field(form,field.replace("_"," ").capitalize());hero_section_controls.append(_field_row(hero_fields[field]))
 	var ability_heading:=Label.new();ability_heading.text="ABILITY";form.add_child(ability_heading);ability_section_controls.append(ability_heading)
-	for field in WorldPackageScript.ABILITY_FIELDS:ability_fields[field]=_add_field(form,field.replace("_"," ").capitalize());ability_section_controls.append(ability_fields[field])
+	for field in WorldPackageScript.ABILITY_FIELDS:ability_fields[field]=_add_labeled_field(form,field.replace("_"," ").capitalize());ability_section_controls.append(_field_row(ability_fields[field]))
 	var item_heading:=Label.new();item_heading.text="ITEM REWARD";form.add_child(item_heading);item_section_controls.append(item_heading)
-	for field in WorldPackageScript.ITEM_FIELDS:item_fields[field]=_add_field(form,field.replace("_"," ").capitalize());item_section_controls.append(item_fields[field])
+	for field in WorldPackageScript.ITEM_FIELDS:item_fields[field]=_add_labeled_field(form,field.replace("_"," ").capitalize());item_section_controls.append(_field_row(item_fields[field]))
 	_add_button(form,"Preview Gameplay Definition",_preview_gameplay_definition)
 	definition_gameplay_preview=RichTextLabel.new();definition_gameplay_preview.fit_content=true;definition_gameplay_preview.custom_minimum_size.y=80;form.add_child(definition_gameplay_preview)
 	_add_button(form, "Apply Changes", apply_definition_changes)
@@ -2675,11 +2701,15 @@ func launch_test_world() -> void:
 		show_errors()
 		return
 	status("Test World 2/3 — terrain cache %s" % preflight.cache.cache_key.left(12))
-	var executable := OS.get_environment("FRONTIER_EXECUTABLE")
+	var executable:=test_world_executable_field.text.strip_edges() if test_world_executable_field!=null and not test_world_executable_field.text.strip_edges().is_empty() else OS.get_environment("FRONTIER_EXECUTABLE")
 	if executable.is_empty():
-		show_blocking_error("Set FRONTIER_EXECUTABLE to enable Test World")
+		show_test_world_setup("Test World needs an executable. Choose Godot 4.7.1 plus Frontier/Game for source review, or choose an exported Frontier executable.")
 		return
-	var launch := build_test_world_launch(executable, OS.get_environment("FRONTIER_PROJECT_PATH"), ProjectSettings.globalize_path(package.package_path), "player_start")
+	var project_path:=test_world_project_field.text.strip_edges() if test_world_project_field!=null and not test_world_project_field.text.strip_edges().is_empty() else OS.get_environment("FRONTIER_PROJECT_PATH")
+	if executable.get_file().to_lower().begins_with("godot") and project_path.is_empty():
+		show_test_world_setup("Source review with Godot also needs Frontier's Game project folder.")
+		return
+	var launch := build_test_world_launch(executable,project_path,ProjectSettings.globalize_path(package.package_path),"player_start")
 	var process_id := OS.create_process(launch.executable, launch.arguments)
 	if process_id <= 0:
 		show_blocking_error("Frontier could not be launched. Check FRONTIER_EXECUTABLE and try again.")
@@ -2809,5 +2839,21 @@ func _add_button(parent: Control, text: String, callback: Callable) -> Button:
 func _add_field(parent: Control, placeholder: String) -> LineEdit:
 	var field := LineEdit.new()
 	field.placeholder_text = placeholder
+	field.accessibility_name = placeholder
 	parent.add_child(field)
 	return field
+
+
+func _add_labeled_field(parent:Control,label_text:String)->LineEdit:
+	var row:=VBoxContainer.new();row.size_flags_horizontal=Control.SIZE_EXPAND_FILL;parent.add_child(row)
+	var label:=Label.new();label.text=label_text;row.add_child(label)
+	var field:=_add_field(row,label_text);field.accessibility_name=label_text;field.accessibility_description="Enter %s"%label_text.to_lower();field.set_meta("labeled_row",row)
+	return field
+
+
+func _field_row(field:Control)->Control:
+	return field.get_meta("labeled_row",field)
+
+
+func _label_control(parent:Control,label_text:String,control:Control)->Label:
+	var label:=Label.new();label.text=label_text;parent.add_child(label);control.accessibility_name=label_text;return label
