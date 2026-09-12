@@ -331,6 +331,11 @@ func validate(candidate: Dictionary) -> Array[String]:
 			if not _is_json_integer(ramp.x) or not _is_json_integer(ramp.z) or ramp.x < 0 or ramp.z < 0 or ramp.x >= int(candidate.grid.width_cells) or ramp.z >= int(candidate.grid.depth_cells) or ramp.direction not in ["north", "east", "south", "west"]:
 				failures.append("terrain.json.cliffs.ramps entry is out of bounds or has an invalid direction")
 				break
+			var neighbor_x := int(ramp.x) + (1 if ramp.direction == "east" else -1 if ramp.direction == "west" else 0)
+			var neighbor_z := int(ramp.z) + (1 if ramp.direction == "south" else -1 if ramp.direction == "north" else 0)
+			if neighbor_x < 0 or neighbor_z < 0 or neighbor_x >= int(candidate.grid.width_cells) or neighbor_z >= int(candidate.grid.depth_cells):
+				failures.append("terrain.json.cliffs.ramps entry points outside terrain bounds")
+				break
 	if not candidate.water.get("enabled") is bool or not _is_json_integer(candidate.water.get("level_cm")) or candidate.water.get("level_cm", 0) < -32768 or candidate.water.get("level_cm", 0) > 32767:
 		failures.append("terrain.json.water requires enabled boolean and signed-centimetre level")
 	_validate_environment(candidate.environment, failures)

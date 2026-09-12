@@ -35,6 +35,12 @@ func set_style(style_id: String) -> bool:
 func add_ramp(x: int, z: int, direction: String) -> bool:
 	if not _valid_cell(x, z) or direction not in ["north", "east", "south", "west"]:
 		return false
+	var neighbor_x := x + (1 if direction == "east" else -1 if direction == "west" else 0)
+	var neighbor_z := z + (1 if direction == "south" else -1 if direction == "north" else 0)
+	if not _valid_cell(neighbor_x, neighbor_z):
+		var boundary_errors:Array[String] = ["Cliff ramp must connect two cells inside the terrain bounds"]
+		terrain.errors = boundary_errors
+		return false
 	var ramp := {"direction": direction, "x": x, "z": z}
 	var candidate: Dictionary = terrain.data.duplicate(true)
 	if _ramp_matches(candidate.cliffs.ramps,x,z,direction):
