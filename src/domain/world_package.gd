@@ -3,6 +3,7 @@ extends RefCounted
 
 const TerrainDocumentScript = preload("res://src/domain/terrain_document.gd")
 const ScenarioDocumentScript = preload("res://src/domain/scenario_document.gd")
+const HistoryClock = preload("res://src/domain/history_clock.gd")
 const FORMAT_VERSION := 1
 const CATEGORIES := ["building", "prop", "landmark", "unit", "ability", "item"]
 const ID_PATTERN := "^[a-z][a-z0-9_]*$"
@@ -22,6 +23,11 @@ var scenario
 var scenario_removed := false
 var _undo: Array[Dictionary] = []
 var _redo: Array[Dictionary] = []
+var _undo_transaction_ids: Array[int] = []
+var _redo_transaction_ids: Array[int] = []
+var revision:=0
+var saved_revision:=0
+var _next_revision:=1
 
 
 func load_from_directory(path: String) -> bool:
@@ -63,6 +69,11 @@ func load_from_directory(path: String) -> bool:
 	dirty = false
 	_undo.clear()
 	_redo.clear()
+	_undo_transaction_ids.clear()
+	_redo_transaction_ids.clear()
+	revision=0
+	saved_revision=0
+	_next_revision=1
 	return true
 
 
@@ -386,19 +397,46 @@ func set_player_start(position: Vector3, rotation_y: float) -> bool:
 func undo() -> bool:
 	if _undo.is_empty():
 		return false
-	_redo.append(_state())
-	_restore(_undo.pop_back())
-	dirty = true
+	var entry:Dictionary=_undo.pop_back()
+	_redo.append({"state":_state(),"revision":revision})
+	_redo_transaction_ids.append(_undo_transaction_ids.pop_back())
+	_restore(entry.state)
+	revision=int(entry.revision)
+	dirty=revision!=saved_revision
 	return true
 
 
 func redo() -> bool:
 	if _redo.is_empty():
 		return false
-	_undo.append(_state())
-	_restore(_redo.pop_back())
-	dirty = true
+	var entry:Dictionary=_redo.pop_back()
+	_undo.append({"state":_state(),"revision":revision})
+	_undo_transaction_ids.append(_redo_transaction_ids.pop_back())
+	_restore(entry.state)
+	revision=int(entry.revision)
+	dirty=revision!=saved_revision
 	return true
+
+
+func can_undo() -> bool:
+	return not _undo.is_empty()
+
+
+func can_redo() -> bool:
+	return not _redo.is_empty()
+
+
+func history_depth() -> int:
+	return _undo.size()
+
+
+func discard_redo_history() -> void:
+	_redo.clear()
+	_redo_transaction_ids.clear()
+
+
+func undo_transaction_ids() -> Array[int]:
+	return _undo_transaction_ids.duplicate()
 
 
 func save(failure_after_install := -1) -> bool:
@@ -448,6 +486,7 @@ func save(failure_after_install := -1) -> bool:
 	if scenario != null:
 		scenario.mark_saved(package_path.path_join("scenario.json"))
 	scenario_removed = false
+	saved_revision=revision
 	dirty = false
 	return true
 
@@ -512,12 +551,31 @@ func _replace_files(paths: Array, failure_after_install := -1, delete_paths: Arr
 	return true
 
 
-func remove_scenario() -> void:
+func set_scenario(document)->bool:
+	_snapshot()
+	scenario=document
+	scenario_removed=false
+	return _accept_change()
+
+
+func set_terrain(document)->bool:
+	if terrain == document:
+		return false
+	_snapshot()
+	terrain = document
+	return _accept_change()
+
+
+func remove_scenario() -> bool:
+	if scenario==null:return false
+	scenario.discard_redo_history()
+	_snapshot()
 	scenario = null
 	scenario_removed = true
+	return _accept_change()
 
 
-func _restore_backups(paths: Array, preexisting: Array = []) -> void:
+func _restore_backups(paths: Array, preexisting: Array = [], transaction_directory := "") -> void:
 	for index in paths.size():
 		var path: String = paths[index]
 		var backup_path: String = path + ".bak"
@@ -529,8 +587,9 @@ func _restore_backups(paths: Array, preexisting: Array = []) -> void:
 			DirAccess.remove_absolute(path)
 		if FileAccess.file_exists(path + ".tmp"):
 			DirAccess.remove_absolute(path + ".tmp")
-	if not package_path.is_empty():
-		DirAccess.remove_absolute(package_path.path_join(".world-package-transaction.json"))
+	var marker_directory:String=transaction_directory if not transaction_directory.is_empty() else package_path
+	if not marker_directory.is_empty():
+		DirAccess.remove_absolute(marker_directory.path_join(".world-package-transaction.json"))
 
 
 func _recover_transaction(path: String) -> bool:
@@ -541,8 +600,7 @@ func _recover_transaction(path: String) -> bool:
 	if not marker is Dictionary or marker.get("version") != 1 or not marker.get("paths") is Array or not marker.get("preexisting") is Array:
 		errors = ["Save recovery stage: invalid transaction marker; preserve the package and restore its .bak files manually"]
 		return false
-	package_path = path
-	_restore_backups(marker.paths, marker.preexisting)
+	_restore_backups(marker.paths, marker.preexisting, path)
 	return true
 
 
@@ -582,25 +640,35 @@ func _terrain_resource_hashes() -> Dictionary:
 
 
 func _snapshot() -> void:
-	_undo.append(_state())
+	_undo.append({"state":_state(),"revision":revision})
+	_undo_transaction_ids.append(HistoryClock.claim())
 	_redo.clear()
+	_redo_transaction_ids.clear()
+	revision=_next_revision
+	_next_revision+=1
 
 
 func _state() -> Dictionary:
-	return {"definitions": definitions.duplicate(true), "world": world.duplicate(true)}
+	return {"definitions": definitions.duplicate(true), "world": world.duplicate(true), "terrain": terrain, "scenario": scenario}
 
 
 func _restore(state: Dictionary) -> void:
 	definitions = state.definitions.duplicate(true)
 	world = state.world.duplicate(true)
+	terrain = state.get("terrain")
+	scenario=state.get("scenario")
+	scenario_removed=scenario==null and not package_path.is_empty() and FileAccess.file_exists(package_path.path_join("scenario.json"))
 
 
 func _accept_change() -> bool:
 	errors = validate()
 	if not errors.is_empty():
-		_restore(_undo.pop_back())
+		var entry:Dictionary=_undo.pop_back()
+		_restore(entry.state)
+		revision=int(entry.revision)
+		_undo_transaction_ids.pop_back()
 		return false
-	dirty = true
+	dirty=revision!=saved_revision
 	return true
 
 

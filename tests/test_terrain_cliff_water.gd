@@ -19,6 +19,11 @@ func _init() -> void:
 	terrain.data.cliffs.levels[3 * 8 + 2] = 1
 	_check(not tools.change_level(3, 3, 1), "Difference above one rejects without a ramp")
 	_check(tools.add_ramp(3, 3, "east"), "Authored traversable ramp adds at a stable edge")
+	var outward_ramps := [{"x":0,"z":3,"direction":"west"},{"x":7,"z":3,"direction":"east"},{"x":3,"z":0,"direction":"north"},{"x":3,"z":7,"direction":"south"}]
+	var accepted_outward:Array[String]=[]
+	for ramp in outward_ramps:
+		if tools.add_ramp(ramp.x,ramp.z,ramp.direction):accepted_outward.append(ramp.direction)
+	_check(accepted_outward.is_empty(), "Ramp authoring rejects every direction-facing terrain boundary; accepted=%s" % [accepted_outward])
 	_check(tools.change_level(3, 3, 1), "Ramp explicitly permits its otherwise-invalid edge")
 	_check(tools.set_style("cliff_dark_highland") and terrain.data.cliffs.style_id == "cliff_dark_highland", "Cliff presentation replaces without topology changes")
 

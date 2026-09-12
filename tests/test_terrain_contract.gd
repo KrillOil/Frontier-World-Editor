@@ -20,6 +20,11 @@ func _init() -> void:
 	var future: Dictionary = terrain.data.duplicate(true)
 	future.terrain_format_version = 2
 	_check(terrain.validate(future).any(func(message): return "unsupported terrain_format_version" in message), "Future required terrain versions are rejected")
+	var accepted_outward:Array[String]=[]
+	for ramp in [{"x":0,"z":3,"direction":"west"},{"x":7,"z":3,"direction":"east"},{"x":3,"z":0,"direction":"north"},{"x":3,"z":7,"direction":"south"}]:
+		var boundary:Dictionary=terrain.data.duplicate(true);boundary.cliffs.ramps=[ramp]
+		if not terrain.validate(boundary).any(func(message):return "points outside terrain bounds" in message):accepted_outward.append(ramp.direction)
+	_check(accepted_outward.is_empty(), "Canonical validation rejects all four outward-facing boundary ramps; accepted=%s" % [accepted_outward])
 	_finish()
 
 
