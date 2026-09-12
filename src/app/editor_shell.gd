@@ -915,13 +915,12 @@ func _build_test_world_setup()->void:
 	var help:=Label.new();help.text="Choose one launch mode. Source review: select the Godot 4.7.1 executable and Frontier's Game folder. Exported build: select Frontier.exe and leave the project folder empty. These values apply to this editor session; FRONTIER_EXECUTABLE and FRONTIER_PROJECT_PATH remain supported defaults.";help.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;form.add_child(help)
 	test_world_executable_field=_add_labeled_path_field(form,"Frontier executable or Godot 4.7.1 executable","Browse…",func():test_world_executable_dialog.popup_centered_ratio(0.8))
 	test_world_project_field=_add_labeled_path_field(form,"Frontier project folder (source review only, ending in Frontier/Game)","Browse…",func():test_world_project_dialog.popup_centered_ratio(0.8))
+	test_world_executable_field.text=OS.get_environment("FRONTIER_EXECUTABLE");test_world_project_field.text=OS.get_environment("FRONTIER_PROJECT_PATH")
 	var example:=Label.new();example.text="Source example\nExecutable: /full/path/Godot_v4.7.1-stable_linux.x86_64\nProject folder: /full/path/Frontier/Game\n\nExported example\nExecutable: C:\\Games\\Frontier\\Frontier.exe\nProject folder: leave empty";example.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;form.add_child(example)
 	var buttons:=HBoxContainer.new();form.add_child(buttons);test_world_use_values_button=_add_button(buttons,"Use These Values",_accept_test_world_setup);_add_button(buttons,"Launch Test World",_launch_from_test_world_setup)
 
 
 func show_test_world_setup(message:="")->void:
-	if test_world_executable_field.text.is_empty():test_world_executable_field.text=OS.get_environment("FRONTIER_EXECUTABLE")
-	if test_world_project_field.text.is_empty():test_world_project_field.text=OS.get_environment("FRONTIER_PROJECT_PATH")
 	if not str(message).is_empty():status(str(message))
 	test_world_setup_dialog.popup_centered()
 
@@ -2732,8 +2731,8 @@ func launch_test_world() -> void:
 		show_errors()
 		return
 	status("Test World 2/3 — terrain cache %s" % preflight.cache.cache_key.left(12))
-	var executable:=test_world_executable_field.text.strip_edges() if test_world_executable_field!=null and not test_world_executable_field.text.strip_edges().is_empty() else OS.get_environment("FRONTIER_EXECUTABLE")
-	var project_path:=test_world_project_field.text.strip_edges() if test_world_project_field!=null and not test_world_project_field.text.strip_edges().is_empty() else OS.get_environment("FRONTIER_PROJECT_PATH")
+	var executable:=test_world_executable_field.text.strip_edges()
+	var project_path:=test_world_project_field.text.strip_edges()
 	var setup_error:=_test_world_setup_error(executable,project_path)
 	if not setup_error.is_empty():show_test_world_setup(setup_error);return
 	var launch := build_test_world_launch(executable,project_path,ProjectSettings.globalize_path(package.package_path),"player_start")
