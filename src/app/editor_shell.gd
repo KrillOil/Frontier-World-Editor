@@ -935,7 +935,10 @@ func _test_world_setup_error(executable:String,project_path:String)->String:
 	if not FileAccess.file_exists(project_path.path_join("project.godot")):return "The selected Frontier project folder has no project.godot. Choose the Frontier/Game folder."
 	if not executable.get_file().to_lower().begins_with("godot"):return "Source review requires the Godot 4.7.1 executable. Choose it in Test Setup."
 	var version_output:Array=[];var version_result:=OS.execute(executable,PackedStringArray(["--version"]),version_output,true)
-	if version_result!=0 or not "4.7.1" in " ".join(version_output):return "Source review requires Godot 4.7.1. Choose the correct executable in Test Setup."
+	var version_text:=" ".join(version_output).strip_edges()
+	if version_result!=0 or not version_text.begins_with("4.7.1."):return "Source review requires Godot 4.7.1. Choose the correct executable in Test Setup."
+	var project_config:=ConfigFile.new();var project_error:=project_config.load(project_path.path_join("project.godot"));var frontier_autoload:=str(project_config.get_value("autoload","AuthoredWorldLaunch",""))
+	if project_error!=OK or str(project_config.get_value("application","config/name",""))!="Frontier" or frontier_autoload!="*res://scripts/authored_world_launch.gd" or not FileAccess.file_exists(project_path.path_join("scripts/authored_world_launch.gd")):return "The selected Godot project is not Frontier. Choose the Frontier/Game folder in Test Setup."
 	return ""
 
 
