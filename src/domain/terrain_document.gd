@@ -82,6 +82,21 @@ func commit_structural(label: String, candidate: Dictionary) -> bool:
 	return _commit_structural_delta(label, candidate)
 
 
+func structural_preflight(label: String, candidate: Dictionary, budget_bytes := HISTORY_BUDGET_BYTES) -> Dictionary:
+	var failures := validate(candidate)
+	var bytes := 0
+	if failures.is_empty():
+		bytes = _canonical_json(data).length() + _canonical_json(candidate).length()
+		if bytes > int(budget_bytes):
+			failures.append("%s exceeds the %d-byte terrain history budget" % [label, int(budget_bytes)])
+	return {
+		"ok": failures.is_empty(),
+		"errors": failures,
+		"bytes": bytes,
+		"would_evict_history": failures.is_empty() and history_bytes + bytes > int(budget_bytes),
+	}
+
+
 func make_default(width_cells: int, depth_cells: int, cell_size_m: float, base_height_cm: int, origin_x_m: float, origin_z_m: float) -> Dictionary:
 	var cells := width_cells * depth_cells
 	var heights: Array = []

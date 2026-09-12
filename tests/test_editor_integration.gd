@@ -82,8 +82,11 @@ func run() -> void:
 	_check(editor.terrain_clipboard.get("clipboard_version") == 1, "Creator selection produces a portable versioned clipboard")
 	editor.workflow_fields.paste_x.value = 2
 	editor.workflow_fields.paste_z.value = 2
+	var paste_revision_before := int(editor.package.terrain.revision)
 	editor._workflow_paste()
-	_check(editor.package.terrain.can_undo(), "Creator paste is available as one undoable operation")
+	_check(not editor.workflow_pending_preview.is_empty() and int(editor.package.terrain.revision) == paste_revision_before, "Creator paste opens a non-mutating preview")
+	editor._workflow_confirm()
+	_check(int(editor.package.terrain.revision) == paste_revision_before + 1 and editor.package.terrain.can_undo(), "Creator confirms paste as one undoable operation")
 	editor.show_scenario_editor()
 	editor.package.remove_scenario()
 	editor._create_scenario()

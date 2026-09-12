@@ -15,7 +15,7 @@ Build the guided-mission MVP through the UI with [the Creator tutorial](docs/CRE
 - Review the current MVP: [`docs/REVIEW.md`](docs/REVIEW.md)
 - Authored data: [`docs/AUTHORING_MODEL.md`](docs/AUTHORING_MODEL.md)
 - Playable units: [`docs/PLAYABLE_UNITS.md`](docs/PLAYABLE_UNITS.md)
-- Terrain capability under review: [`docs/TERRAIN_CAPABILITY.md`](docs/TERRAIN_CAPABILITY.md)
+- Terrain delivery contract: [`docs/TERRAIN_CAPABILITY.md`](docs/TERRAIN_CAPABILITY.md)
 - Frontier handoff: [`docs/FRONTIER_INTEGRATION.md`](docs/FRONTIER_INTEGRATION.md)
 
 Implementation is proceeding through the accepted GitHub milestones, beginning with project foundation.
@@ -55,6 +55,8 @@ The test command verifies the exact Godot version and runs the shell checks head
 - Object Editor: create, duplicate, edit, and safely delete definitions
 - Unit definitions: author ownership, health, movement, selection, and basic combat values
 - Terrain: create an 8–512-cell base grid, edit bounds with a nine-point anchor, reset through an impact confirmation, and undo or redo structural changes
+- Terrain Workflow: press `S` and drag an inclusive source rectangle, `Ctrl+C` to copy, `Ctrl+V` to preview Paste, or choose **Preview Move**; move the live snapped ghost, press `Enter` to confirm one Undo entry, or `Escape` to cancel without mutation; press `F` then click terrain for a detailed sample
+- Creator palette: switch between Terrain, Units, Props, Regions, and Mission inside the workspace; dock, resize, or collapse it without changing authored data
 - Sculpt: choose Raise, Lower, Flatten, Smooth, Plateau, or Noise; tune radius/strength/falloff in the viewport HUD; drag to apply one undoable stroke; press `Escape` before release to cancel
 - Surfaces: browse the Crimsdale texture palette, manage up to four portable layers, and paint or erase normalized blends with live viewport feedback
 - Cliffs & Water: raise/lower discrete cliff cells, author traversable ramp edges, replace cliff style, and preview global shallow/deep water with derived shores
