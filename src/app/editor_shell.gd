@@ -120,6 +120,9 @@ var validation_list:ItemList
 var test_world_setup_dialog:Window
 var test_world_executable_field:LineEdit
 var test_world_project_field:LineEdit
+var test_world_executable_dialog:FileDialog
+var test_world_project_dialog:FileDialog
+var test_world_use_values_button:Button
 var cinematic_update_step_button:Button
 var cinematic_play_preview_button:Button
 var pending_after_save: Callable
@@ -180,13 +183,12 @@ func _ready() -> void:
 func _build_toolbar() -> void:
 	var bar := HBoxContainer.new()
 	bar.name = "Toolbar"
-	bar.position = Vector2(12, 10)
-	bar.size = Vector2(size.x - 24, 36)
 	bar.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
 	bar.offset_left = 12
 	bar.offset_top = 10
 	bar.offset_right = -12
 	bar.offset_bottom = 46
+	bar.add_theme_constant_override("separation",1)
 	add_child(bar)
 	_add_button(bar, "World", func(): status("World workspace"))
 	_add_button(bar, "Open", request_open_package)
@@ -907,12 +909,14 @@ func _build_validation_results()->void:
 
 func _build_test_world_setup()->void:
 	test_world_setup_dialog=Window.new();test_world_setup_dialog.title="Test World Setup";test_world_setup_dialog.size=Vector2i(720,560);test_world_setup_dialog.close_requested.connect(test_world_setup_dialog.hide);test_world_setup_dialog.visible=false;add_child(test_world_setup_dialog)
+	test_world_executable_dialog=FileDialog.new();test_world_executable_dialog.title="Choose Frontier or Godot 4.7.1 executable";test_world_executable_dialog.access=FileDialog.ACCESS_FILESYSTEM;test_world_executable_dialog.file_mode=FileDialog.FILE_MODE_OPEN_FILE;test_world_executable_dialog.file_selected.connect(func(path):test_world_executable_field.text=path);add_child(test_world_executable_dialog)
+	test_world_project_dialog=FileDialog.new();test_world_project_dialog.title="Choose Frontier Game project folder";test_world_project_dialog.access=FileDialog.ACCESS_FILESYSTEM;test_world_project_dialog.file_mode=FileDialog.FILE_MODE_OPEN_DIR;test_world_project_dialog.dir_selected.connect(func(path):test_world_project_field.text=path);add_child(test_world_project_dialog)
 	var form:=VBoxContainer.new();form.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT);form.offset_left=18;form.offset_top=18;form.offset_right=-18;form.offset_bottom=-18;test_world_setup_dialog.add_child(form)
 	var help:=Label.new();help.text="Choose one launch mode. Source review: select the Godot 4.7.1 executable and Frontier's Game folder. Exported build: select Frontier.exe and leave the project folder empty. These values apply to this editor session; FRONTIER_EXECUTABLE and FRONTIER_PROJECT_PATH remain supported defaults.";help.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;form.add_child(help)
-	test_world_executable_field=_add_labeled_field(form,"Frontier executable or Godot 4.7.1 executable")
-	test_world_project_field=_add_labeled_field(form,"Frontier project folder (source review only, ending in Frontier/Game)")
+	test_world_executable_field=_add_labeled_path_field(form,"Frontier executable or Godot 4.7.1 executable","Browse…",func():test_world_executable_dialog.popup_centered_ratio(0.8))
+	test_world_project_field=_add_labeled_path_field(form,"Frontier project folder (source review only, ending in Frontier/Game)","Browse…",func():test_world_project_dialog.popup_centered_ratio(0.8))
 	var example:=Label.new();example.text="Source example\nExecutable: /full/path/Godot_v4.7.1-stable_linux.x86_64\nProject folder: /full/path/Frontier/Game\n\nExported example\nExecutable: C:\\Games\\Frontier\\Frontier.exe\nProject folder: leave empty";example.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;form.add_child(example)
-	var buttons:=HBoxContainer.new();form.add_child(buttons);_add_button(buttons,"Use These Values",func():test_world_setup_dialog.hide();status("Test World setup saved for this editor session"));_add_button(buttons,"Launch Test World",func():test_world_setup_dialog.hide();test_world())
+	var buttons:=HBoxContainer.new();form.add_child(buttons);test_world_use_values_button=_add_button(buttons,"Use These Values",_accept_test_world_setup);_add_button(buttons,"Launch Test World",_launch_from_test_world_setup)
 
 
 func show_test_world_setup(message:="")->void:
@@ -920,6 +924,32 @@ func show_test_world_setup(message:="")->void:
 	if test_world_project_field.text.is_empty():test_world_project_field.text=OS.get_environment("FRONTIER_PROJECT_PATH")
 	if not str(message).is_empty():status(str(message))
 	test_world_setup_dialog.popup_centered()
+
+
+func _test_world_setup_error(executable:String,project_path:String)->String:
+	if executable.is_empty():return "Choose a Frontier executable or the Godot 4.7.1 executable."
+	if not FileAccess.file_exists(executable):return "The selected executable does not exist. Choose it again in Test Setup."
+	var source_mode:=not project_path.is_empty() or executable.get_file().to_lower().begins_with("godot")
+	if not source_mode:return ""
+	if project_path.is_empty():return "Source review with Godot also needs Frontier's Game project folder."
+	if not DirAccess.dir_exists_absolute(project_path):return "The selected Frontier project folder does not exist. Choose Frontier/Game in Test Setup."
+	if not FileAccess.file_exists(project_path.path_join("project.godot")):return "The selected Frontier project folder has no project.godot. Choose the Frontier/Game folder."
+	if not executable.get_file().to_lower().begins_with("godot"):return "Source review requires the Godot 4.7.1 executable. Choose it in Test Setup."
+	var version_output:Array=[];var version_result:=OS.execute(executable,PackedStringArray(["--version"]),version_output,true)
+	if version_result!=0 or not "4.7.1" in " ".join(version_output):return "Source review requires Godot 4.7.1. Choose the correct executable in Test Setup."
+	return ""
+
+
+func _accept_test_world_setup()->void:
+	var error:=_test_world_setup_error(test_world_executable_field.text.strip_edges(),test_world_project_field.text.strip_edges())
+	if not error.is_empty():show_test_world_setup(error);return
+	test_world_setup_dialog.hide();status("Test World setup validated for this editor session")
+
+
+func _launch_from_test_world_setup()->void:
+	var error:=_test_world_setup_error(test_world_executable_field.text.strip_edges(),test_world_project_field.text.strip_edges())
+	if not error.is_empty():show_test_world_setup(error);return
+	test_world_setup_dialog.hide();test_world()
 
 
 func _build_guidance_editor() -> void:
@@ -964,13 +994,14 @@ func _build_cinematic_editor()->void:
 	var form:=VBoxContainer.new();form.size_flags_horizontal=Control.SIZE_EXPAND_FILL;scroll.add_child(form)
 	var help:=Label.new();help.text="Choose an opening or ending, then add or update its ordered shots. Dialogue always includes a subtitle; audio is optional. Select a timeline row to edit it or preview that beat.";help.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;form.add_child(help)
 	cinematic_list=ItemList.new();cinematic_list.accessibility_name="Cinematics";cinematic_list.custom_minimum_size.y=72;cinematic_list.item_selected.connect(_load_cinematic);form.add_child(cinematic_list)
-	var id_label:=Label.new();id_label.text="Cinematic stable ID";form.add_child(id_label);cinematic_fields.cinematic_id=_add_field(form,"opening")
+	var id_label:=Label.new();id_label.text="Cinematic stable ID";form.add_child(id_label);cinematic_fields.cinematic_id=_add_field(form,"opening");cinematic_fields.cinematic_id.accessibility_name="Cinematic stable ID"
 	var flags:=HBoxContainer.new();form.add_child(flags)
 	for field in ["skippable","letterbox","control_lock"]:
 		var toggle:=CheckBox.new();toggle.text={"skippable":"Escape can skip","letterbox":"Show letterbox","control_lock":"Lock gameplay controls"}[field];toggle.button_pressed=true;flags.add_child(toggle);cinematic_fields[field]=toggle
 	var cinematic_buttons:=HBoxContainer.new();form.add_child(cinematic_buttons);_add_button(cinematic_buttons,"Add Cinematic",_add_cinematic);_add_button(cinematic_buttons,"Update Playback Flags",_update_cinematic);_add_button(cinematic_buttons,"Delete Cinematic",_delete_cinematic)
 	var step_heading:=Label.new();step_heading.text="Timeline step type";form.add_child(step_heading)
 	cinematic_step_type=OptionButton.new()
+	cinematic_step_type.accessibility_name="Timeline step type"
 	for type in ScenarioDocumentScript.CINEMATIC_STEPS:
 		cinematic_step_type.add_item(type.replace("_"," ").capitalize());cinematic_step_type.set_item_metadata(cinematic_step_type.item_count-1,type)
 	form.add_child(cinematic_step_type)
@@ -2702,17 +2733,13 @@ func launch_test_world() -> void:
 		return
 	status("Test World 2/3 — terrain cache %s" % preflight.cache.cache_key.left(12))
 	var executable:=test_world_executable_field.text.strip_edges() if test_world_executable_field!=null and not test_world_executable_field.text.strip_edges().is_empty() else OS.get_environment("FRONTIER_EXECUTABLE")
-	if executable.is_empty():
-		show_test_world_setup("Test World needs an executable. Choose Godot 4.7.1 plus Frontier/Game for source review, or choose an exported Frontier executable.")
-		return
 	var project_path:=test_world_project_field.text.strip_edges() if test_world_project_field!=null and not test_world_project_field.text.strip_edges().is_empty() else OS.get_environment("FRONTIER_PROJECT_PATH")
-	if executable.get_file().to_lower().begins_with("godot") and project_path.is_empty():
-		show_test_world_setup("Source review with Godot also needs Frontier's Game project folder.")
-		return
+	var setup_error:=_test_world_setup_error(executable,project_path)
+	if not setup_error.is_empty():show_test_world_setup(setup_error);return
 	var launch := build_test_world_launch(executable,project_path,ProjectSettings.globalize_path(package.package_path),"player_start")
 	var process_id := OS.create_process(launch.executable, launch.arguments)
 	if process_id <= 0:
-		show_blocking_error("Frontier could not be launched. Check FRONTIER_EXECUTABLE and try again.")
+		show_test_world_setup("Frontier could not be launched. Check the values in Test Setup and try again.")
 	else:
 		status("Test World 3/3 — Frontier launched at player_start")
 
@@ -2848,6 +2875,15 @@ func _add_labeled_field(parent:Control,label_text:String)->LineEdit:
 	var row:=VBoxContainer.new();row.size_flags_horizontal=Control.SIZE_EXPAND_FILL;parent.add_child(row)
 	var label:=Label.new();label.text=label_text;row.add_child(label)
 	var field:=_add_field(row,label_text);field.accessibility_name=label_text;field.accessibility_description="Enter %s"%label_text.to_lower();field.set_meta("labeled_row",row)
+	return field
+
+
+func _add_labeled_path_field(parent:Control,label_text:String,browse_text:String,browse_callback:Callable)->LineEdit:
+	var outer:=VBoxContainer.new();outer.size_flags_horizontal=Control.SIZE_EXPAND_FILL;parent.add_child(outer)
+	var label:=Label.new();label.text=label_text;outer.add_child(label)
+	var row:=HBoxContainer.new();outer.add_child(row)
+	var field:=_add_field(row,label_text);field.size_flags_horizontal=Control.SIZE_EXPAND_FILL;field.accessibility_name=label_text;field.accessibility_description="Enter or browse for %s"%label_text.to_lower();field.set_meta("labeled_row",outer)
+	var browse:=_add_button(row,browse_text,browse_callback);browse.accessibility_name="Browse for %s"%label_text
 	return field
 
 

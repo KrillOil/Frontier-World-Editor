@@ -36,7 +36,7 @@ func _run()->void:
 		if not await _capture(capture_viewport,validation_screenshot_path):return
 		opening.steps[1].speaker_instance_id=speaker
 	if not setup_screenshot_path.is_empty():
-		editor.validation_dialog.hide();editor.cinematic_dialog.hide();editor.test_world_executable_field.text="/full/path/Godot_v4.7.1-stable_linux.x86_64";editor.test_world_project_field.text="/full/path/Frontier/Game";editor.show_test_world_setup()
+		editor.validation_dialog.hide();editor.cinematic_dialog.hide();editor.test_world_executable_field.text="/full/path/Godot_v4.7.1-stable_linux.x86_64";editor.test_world_project_field.text="/full/path/Frontier/Game";editor.show_test_world_setup();editor.status("Test World setup ready")
 		if not await _capture(capture_viewport,setup_screenshot_path):return
 	editor.viewport.render_target_update_mode=SubViewport.UPDATE_DISABLED;var host:=editor.get_parent();host.remove_child(editor);editor.free()
 	if host is SubViewport:root.remove_child(host);host.free()

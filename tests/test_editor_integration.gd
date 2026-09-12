@@ -11,8 +11,9 @@ func _init() -> void:
 
 
 func run() -> void:
+	var viewport:=SubViewport.new();viewport.size=Vector2i(1280,720);viewport.gui_embed_subwindows=true;root.add_child(viewport)
 	var editor = SHELL.instantiate()
-	root.add_child(editor)
+	viewport.add_child(editor)
 	await process_frame
 	await process_frame
 	_check(editor.package.world.get("world_id") == "crimsdale", "Editor opens Crimsdale")
@@ -20,9 +21,14 @@ func run() -> void:
 	_check(editor.world_root.get_node_or_null("crimsdale_house_001") != null, "House preview is created")
 	_check(editor.definition_list.item_count == 8, "Object Editor lists world, unit, ability, and item definitions")
 	_check(editor.terrain_dialog != null and editor.terrain_fields.size() == 6, "Terrain workflow exposes explicit dimensions, resolution, height, and origin")
+	var toolbar_rect:Rect2=editor.get_node("Toolbar").get_global_rect();_check(toolbar_rect.position.x>=12.0 and toolbar_rect.end.x<=1268.0,"The compact toolbar preserves both 12px margins at 1280 pixels")
 	_check(_has_visible_label(editor.scenario_fields.title,"Title") and editor.scenario_fields.title.accessibility_name=="Title" and _has_visible_label(editor.scenario_region_fields.x1,"First point X (metres)"),"Scenario fields retain visible labels and accessibility names after values are populated")
 	_check(_has_visible_label(editor.definition_id_field,"Stable definition ID") and editor.definition_category.accessibility_name=="Category" and editor.definition_owner.accessibility_name=="Owner","Object fields and dropdowns expose persistent visible/accessibility labels")
-	editor.test_world_executable_field.text="/tools/Godot_v4.7.1-stable_linux.x86_64";editor.test_world_project_field.text="";editor.launch_test_world();_check(editor.test_world_setup_dialog.visible and "project folder" in editor.status_label.text.to_lower(),"Godot source launch opens actionable setup when Frontier/Game is missing");editor.test_world_setup_dialog.hide()
+	_check(editor.test_world_executable_dialog.file_mode==FileDialog.FILE_MODE_OPEN_FILE and editor.test_world_project_dialog.file_mode==FileDialog.FILE_MODE_OPEN_DIR,"Test Setup provides executable and Frontier/Game browse controls")
+	editor.test_world_executable_field.text=OS.get_executable_path();editor.test_world_project_field.text="";editor.launch_test_world();_check(editor.test_world_setup_dialog.visible and "project folder" in editor.status_label.text.to_lower(),"Godot source launch opens actionable setup when Frontier/Game is missing");editor.test_world_setup_dialog.hide()
+	editor.test_world_executable_field.text="/definitely/missing/Godot_v4.7.1-stable_linux.x86_64";editor.test_world_project_field.text="";editor.show_test_world_setup();editor._accept_test_world_setup();_check(editor.test_world_setup_dialog.visible and "does not exist" in editor.status_label.text.to_lower(),"Test Setup refuses a missing executable without hiding or claiming success")
+	editor.test_world_executable_field.text=OS.get_executable_path();editor.test_world_project_field.text="/definitely/missing/Frontier/Game";editor._accept_test_world_setup();_check(editor.test_world_setup_dialog.visible and "project folder does not exist" in editor.status_label.text.to_lower(),"Test Setup refuses a missing source project without hiding or claiming success");editor.test_world_setup_dialog.hide()
+	editor.test_world_executable_field.text=OS.get_executable_path();editor.test_world_project_field.text=ProjectSettings.globalize_path("res://");editor.show_test_world_setup();editor._accept_test_world_setup();_check(not editor.test_world_setup_dialog.visible and "validated" in editor.status_label.text.to_lower(),"Test Setup accepts an existing Godot 4.7.1 executable and project.godot folder")
 	editor.terrain_fields.width_cells.text = "8"
 	editor.terrain_fields.depth_cells.text = "8"
 	editor.terrain_fields.cell_size_m.text = "1"
@@ -106,12 +112,13 @@ func run() -> void:
 	_check(editor.package.scenario.data.cinematics.size()==1,"Creator adds a cinematic: "+" | ".join(editor.package.scenario.errors))
 	if editor.package.scenario.data.cinematics.size()==1:
 		_check(editor.package.scenario.data.cinematics[0].steps.size()==1 and "Follow me" in editor.package.scenario.data.cinematics[0].steps[0].text and "SKIPPED" in editor.cinematic_preview.text,"Creator authors, subtitles, scrubs, plays, and skips a cinematic without optional audio: "+" | ".join(editor.package.scenario.errors))
-		_check(editor.cinematic_fields.skippable is CheckBox and editor.cinematic_field_labels.a.text=="Speaker instance ID" and editor.cinematic_field_rows.c.visible==false and "Dialogue —" in editor.cinematic_step_list.get_item_text(0) and "{" not in editor.cinematic_step_list.get_item_text(0),"Cinematic workspace uses explicit flags, type-specific labels, and readable timeline rows")
+		_check(editor.cinematic_fields.skippable is CheckBox and editor.cinematic_fields.cinematic_id.accessibility_name=="Cinematic stable ID" and editor.cinematic_step_type.accessibility_name=="Timeline step type" and editor.cinematic_field_labels.a.text=="Speaker instance ID" and editor.cinematic_field_rows.c.visible==false and "Dialogue —" in editor.cinematic_step_list.get_item_text(0) and "{" not in editor.cinematic_step_list.get_item_text(0),"Cinematic workspace uses accessible stable/type labels, explicit flags, and readable timeline rows")
 		for type_index in editor.cinematic_step_type.item_count:
 			if editor.cinematic_step_type.get_item_metadata(type_index)=="camera":editor.cinematic_step_type.select(type_index);editor._refresh_cinematic_step_fields();break
 		_check(editor.cinematic_field_labels.a.text=="Camera region ID" and editor.cinematic_field_rows.number_2.visible and not editor.cinematic_field_rows.b.visible,"Camera beats expose only region and timing controls")
 		editor.cinematic_step_list.select(0);editor._scrub_cinematic(0);editor.cinematic_fields.text.text="The safe road is beyond the ridge.";editor._update_cinematic_step();_check(editor.package.scenario.data.cinematics[0].steps[0].text=="The safe road is beyond the ridge.","Selecting and updating an existing cinematic beat preserves its timeline position")
-		var cinematic_bottom:float=float(editor.cinematic_dialog.position.y+editor.cinematic_dialog.size.y);_check(editor.cinematic_update_step_button.get_global_rect().end.y<=cinematic_bottom and editor.cinematic_play_preview_button.get_global_rect().end.y<=cinematic_bottom,"Cinematic update and preview controls fit the initial 1280x720 dialog view without scrolling")
+		await process_frame
+		_check(editor.cinematic_update_step_button.get_global_rect().end.y<=680.0 and editor.cinematic_play_preview_button.get_global_rect().end.y<=680.0,"Cinematic update and preview controls fit the initial 1280x720 dialog view without scrolling")
 	editor.show_sequence_editor()
 	editor.sequence_fields.sequence_id.text = "mission_start"
 	editor._create_sequence()
@@ -179,8 +186,9 @@ func run() -> void:
 	editor.open_package("res://worlds/crimsdale");editor.package.remove_scenario();editor._create_guided_mission_template();_check(editor.package.scenario!=null and editor.package.scenario._find(editor.package.scenario.data.sequences,"sequence_id","mission_victory").actions[-1].result=="victory","Creator generates the complete reusable guided-mission spine from an empty scenario without JSON")
 
 	editor.viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
-	root.remove_child(editor)
+	viewport.remove_child(editor)
 	editor.free()
+	root.remove_child(viewport);viewport.free()
 	await process_frame
 	if failures.is_empty():
 		print("PASS: editor package, Object Editor, palette, and viewport integration")
