@@ -28,7 +28,7 @@ jobs:
         run: |
           set -o pipefail
           log_file="$(mktemp)"
-          xvfb-run -a .godot-bin/Godot_v4.7.1-stable_linux.x86_64 --path . --script tests/test_terrain_t0_editor.gd 2>&1 | tee "$log_file"
+          xvfb-run -a .godot-bin/Godot_v4.7.1-stable_linux.x86_64 --audio-driver Dummy --path . --script tests/test_terrain_t0_editor.gd 2>&1 | tee "$log_file"
           if grep -Eq 'SCRIPT ERROR|Parse Error|T0_FAIL' "$log_file"; then
             echo "Terrain T0 emitted a script/runtime failure." >&2
             exit 1
