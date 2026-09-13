@@ -27,7 +27,8 @@ func _run() -> void:
 
 	_check_palette_shell(editor)
 	await _check_viewport_workflow(editor)
-	_check_preview_cancel_confirm(editor)
+	await _check_window_shortcuts(editor)
+	await _check_preview_cancel_confirm(editor)
 	_check_persistence(editor, fixture_path)
 
 	print("T1_SUMMARY|checks=", checks, "|failures=", failures.size())
@@ -127,6 +128,58 @@ func _check_viewport_workflow(editor) -> void:
 	_check("Height authored" in editor.workflow_preview_label.text and "effective" in editor.workflow_preview_label.text and "surface_crimsdale_grass" in editor.workflow_preview_label.text and "Pathing" in editor.workflow_preview_label.text, "F-then-click inspection exposes authored/effective height, paired surfaces, water, pathing, and attachments")
 
 
+func _check_window_shortcuts(editor) -> void:
+	editor.workflow.select_cells(Vector2i(4, 4), Vector2i(4, 4)); editor._workflow_sync_source_fields(editor.workflow.selection)
+	editor.workflow_cancel_button.grab_focus()
+	await process_frame
+	var button_focus_established: bool = editor.workflow_dialog.gui_get_focus_owner() == editor.workflow_cancel_button
+	_push_window_key(editor, _key(KEY_S))
+	await process_frame
+	var button_select: bool = editor.workflow_select_armed
+	_push_window_key(editor, _key(KEY_ESCAPE))
+	await process_frame
+	_push_window_key(editor, _key(KEY_F))
+	await process_frame
+	var button_sample: bool = editor.workflow_sampling
+	editor.orbit_target = Vector3(99, 99, 99)
+	var expected_center: Vector3 = editor.workflow.minimap_recenter(Vector2(0.5, 0.5))
+	_push_window_key(editor, _key(KEY_M))
+	await process_frame
+	var button_recenter: bool = editor.orbit_target.is_equal_approx(expected_center)
+	_push_window_key(editor, _key(KEY_ESCAPE))
+	await process_frame
+	var guard = editor.workflow_dialog.get_node("WorkflowInputGuard")
+	_check(guard.dispatcher.is_valid() and button_focus_established and button_select and button_sample and button_recenter and editor.workflow_dialog.visible and not editor.workflow_select_armed and not editor.workflow_sampling, "Focused workflow Window routes S, F, M, and Escape through its input guard to the same states as mouse controls")
+
+	editor.terrain_clipboard.clear()
+	editor.workflow_fields.width.get_line_edit().grab_focus()
+	var width_text: String = editor.workflow_fields.width.get_line_edit().text
+	_push_window_key(editor, _key(KEY_C, true))
+	await process_frame
+	var text_copy_preserved: bool = editor.terrain_clipboard.is_empty() and editor.workflow_fields.width.get_line_edit().text == width_text
+	_push_window_key(editor, _key(KEY_S))
+	await process_frame
+	var numeric_select_suppressed: bool = not editor.workflow_select_armed and editor.workflow_fields.width.get_line_edit().text == width_text
+	_push_window_key(editor, _key(KEY_F))
+	await process_frame
+	var numeric_inspect_suppressed: bool = not editor.workflow_sampling
+	editor.orbit_target = Vector3(99, 99, 99)
+	_push_window_key(editor, _key(KEY_M))
+	await process_frame
+	_check(text_copy_preserved and numeric_select_suppressed and numeric_inspect_suppressed and is_equal_approx(editor.orbit_target.x, 99.0) and is_equal_approx(editor.orbit_target.z, 99.0), "Numeric LineEdit focus preserves editing by suppressing Ctrl+C, S, F, and M workflow shortcuts")
+
+	editor.workflow_cancel_button.grab_focus()
+	_push_window_key(editor, _key(KEY_C, true))
+	await process_frame
+	var copied: bool = not editor.terrain_clipboard.is_empty()
+	_push_window_key(editor, _key(KEY_V, true))
+	await process_frame
+	var paste_ghost: bool = not editor.workflow_pending_preview.is_empty() and not editor.workflow_pending_preview.get("destination_settled", true)
+	_push_window_key(editor, _key(KEY_ESCAPE))
+	await process_frame
+	_check(copied and paste_ghost and editor.workflow_pending_preview.is_empty() and editor.workflow_dialog.visible, "Button focus routes Ctrl+C, Ctrl+V, and Escape through immutable copy, live ghost, and non-mutating cancel")
+
+
 func _check_preview_cancel_confirm(editor) -> void:
 	editor.workflow.select_cells(Vector2i(4, 4), Vector2i(4, 4))
 	editor._workflow_sync_source_fields(editor.workflow.selection)
@@ -142,7 +195,24 @@ func _check_preview_cancel_confirm(editor) -> void:
 	var pathing_overlay: Node = editor.world_root.get_node_or_null("PathingOverlay")
 	var region_overlay: Node = editor.world_root.get_node_or_null("ScenarioRegions")
 	_check(workflow_overlay != null and workflow_overlay.get_meta("overlay_label") == "Terrain Workflow" and workflow_overlay.get_node_or_null("SourceLabel") != null and workflow_overlay.get_node_or_null("DestinationLabel") != null and pathing_overlay != null and pathing_overlay.get_meta("overlay_label") == "Pathing" and region_overlay != null and region_overlay.get_meta("overlay_label") == "Scenario Regions" and editor.world_root.get_node_or_null("WorkflowOverlay") == workflow_overlay, "Workflow, Pathing, and Scenario Regions remain independently labelled without hiding the source or ghost")
-	editor._workflow_cancel()
+	var populated: Dictionary = editor.workflow_pending_preview.duplicate(true)
+	populated.intersecting_authored_ids = ["crimsdale_fountain_001", "crimsdale_guard_patrol_north_001", "mission_encounter_boundary_northeast", "grounded_attachment_blacksmith_workshop"]
+	populated.warnings = ["1 boundary ramp remains at the source", "A grounded authored target intersects the committed rectangle"]
+	populated.ok = false; populated.confirm_enabled = false; populated.error = "Candidate validation failed after a representative authored-data change"; populated.recovery = "Return to the source selection, repair the named terrain edge, and validate this destination again."
+	editor.workflow_preview_label.text = editor._workflow_preview_text(populated)
+	await process_frame
+	await process_frame
+	var client_size := Vector2(620, 680) if DisplayServer.get_name() == "headless" else Vector2(editor.workflow_dialog.size)
+	var client := Rect2(Vector2.ZERO, client_size)
+	var confirm_rect: Rect2 = editor.workflow_confirm_button.get_global_rect()
+	var cancel_rect: Rect2 = editor.workflow_cancel_button.get_global_rect()
+	var preview_rect: Rect2 = editor.workflow_preview_label.get_global_rect()
+	var screen_bottom := float(editor.workflow_dialog.position.y) + maxf(confirm_rect.end.y, cancel_rect.end.y)
+	var layout_conditions := [client.encloses(confirm_rect), client.encloses(cancel_rect), client.encloses(preview_rect), screen_bottom <= 720.0, editor.workflow_preview_label.autowrap_mode != TextServer.AUTOWRAP_OFF]
+	_check(not layout_conditions.has(false), "Populated warning/recovery preview remains wrapped and Confirm/Cancel stay mouse-visible inside the 1280×720 client; conditions=%s client=%s confirm=%s cancel=%s preview=%s screen_bottom=%s" % [layout_conditions, client, confirm_rect, cancel_rect, preview_rect, screen_bottom])
+	editor.workflow_cancel_button.grab_focus()
+	_push_window_key(editor, _key(KEY_ESCAPE))
+	await process_frame
 	var after_cancel := [editor.package.terrain.serialize(), editor.package.terrain.revision, editor.package.terrain.dirty, editor.package.terrain.history_depth(), editor.package.terrain.redo_history.size()]
 	_check(after_cancel == before_cancel and editor.workflow.selection == Rect2i(4, 4, 1, 1), "Escape cancels preview without changing data, revision, dirty state, history, redo, or source selection")
 
@@ -152,7 +222,9 @@ func _check_preview_cancel_confirm(editor) -> void:
 	var terrain_history_before: int = editor.package.terrain.history_depth()
 	var global_history_before: int = editor.global_undo_domains.size()
 	var state_before_move: String = editor.package.terrain.serialize()
-	editor._workflow_confirm()
+	editor.workflow_confirm_button.grab_focus()
+	_push_window_key(editor, _key(KEY_ENTER))
+	await process_frame
 	var moved_state: String = editor.package.terrain.serialize()
 	_check(moved_state != state_before_move and editor.package.terrain.history_depth() == terrain_history_before + 1 and editor.global_undo_domains.size() == global_history_before + 1, "Confirm commits Move as one globally chronological terrain transaction")
 	editor.perform_undo()
@@ -183,6 +255,19 @@ func _screen_for_cell(editor, cell: Vector2i) -> Vector2:
 	var x := float(grid.origin_x_m) + (cell.x + 0.5) * float(grid.cell_size_m)
 	var z := float(grid.origin_z_m) + (cell.y + 0.5) * float(grid.cell_size_m)
 	return editor.camera.unproject_position(Vector3(x, editor.package.terrain.effective_height(x, z), z))
+
+
+func _key(keycode: Key, control := false) -> InputEventKey:
+	var event := InputEventKey.new()
+	event.keycode = keycode
+	event.pressed = true
+	event.ctrl_pressed = control
+	return event
+
+
+func _push_window_key(editor, event: InputEventKey) -> void:
+	if DisplayServer.get_name() == "headless": editor._on_workflow_window_input(event)
+	else: editor.workflow_dialog.push_input(event)
 
 
 func _check(condition: bool, message: String) -> void:

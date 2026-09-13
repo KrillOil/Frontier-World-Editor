@@ -63,7 +63,7 @@ jobs:
             echo "Terrain T1 emitted a script/runtime failure." >&2
             exit 1
           fi
-          if ! grep -Fq 'T1_SUMMARY|checks=21|failures=0' "$log_file"; then
+          if ! grep -Fq 'T1_SUMMARY|checks=25|failures=0' "$log_file"; then
             echo "Terrain T1 did not reach its fail-closed terminal marker." >&2
             exit 1
           fi

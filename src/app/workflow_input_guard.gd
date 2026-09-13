@@ -1,7 +1,7 @@
 class_name WorkflowInputGuard
 extends Control
 
-signal escape_requested
+var dispatcher: Callable
 
 
 func _ready()->void:
@@ -10,6 +10,5 @@ func _ready()->void:
 
 
 func _input(event:InputEvent)->void:
-	if event is InputEventKey and event.pressed and not event.echo and event.keycode==KEY_ESCAPE:
-		escape_requested.emit()
+	if is_visible_in_tree() and dispatcher.is_valid() and dispatcher.call(event):
 		get_viewport().set_input_as_handled()

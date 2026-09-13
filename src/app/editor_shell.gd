@@ -1019,21 +1019,20 @@ func toggle_environment_preview()->void:
 func _build_workflow_editor() -> void:
 	workflow_dialog = Window.new()
 	workflow_dialog.title = "Terrain Workflow — Viewport Direct Manipulation"
-	workflow_dialog.size = Vector2i(620, 650)
+	workflow_dialog.size = Vector2i(620, 680)
 	workflow_dialog.exclusive = false
 	workflow_dialog.transient = false
 	workflow_dialog.close_requested.connect(close_workflow_editor)
-	workflow_dialog.window_input.connect(_on_workflow_window_input)
 	workflow_dialog.visible = false
 	add_child(workflow_dialog)
-	var input_guard=WorkflowInputGuardScript.new();input_guard.name="WorkflowInputGuard";input_guard.escape_requested.connect(_workflow_cancel);workflow_dialog.add_child(input_guard)
+	var input_guard=WorkflowInputGuardScript.new();input_guard.name="WorkflowInputGuard";input_guard.dispatcher=_on_workflow_window_input;workflow_dialog.add_child(input_guard)
 	var form := VBoxContainer.new()
 	form.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	form.offset_left = 18; form.offset_top = 18; form.offset_right = -18; form.offset_bottom = -18
 	form.add_theme_constant_override("separation", 2)
 	workflow_dialog.add_child(form)
 	var help := Label.new()
-	help.text = "S then drag selects cells in the viewport. Ctrl+C freezes enabled domains. Ctrl+V or Move starts a snapped ghost; Enter confirms and Escape cancels. F then click inspects displayed terrain. Middle-drag and wheel keep controlling the camera."
+	help.text = "S drag-select · Ctrl+C copy · Ctrl+V paste ghost · Move starts a move ghost · Enter confirm · Escape cancel\nF then click inspect · M recenter · Middle-drag camera · Wheel zoom"
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	form.add_child(help)
 	var columns := HBoxContainer.new()
@@ -1069,7 +1068,10 @@ func _build_workflow_editor() -> void:
 	workflow_preview_label = RichTextLabel.new()
 	workflow_preview_label.name = "PreviewDetails"
 	workflow_preview_label.custom_minimum_size.y = 105
+	workflow_preview_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	workflow_preview_label.fit_content = false
+	workflow_preview_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	workflow_preview_label.scroll_active = true
 	workflow_preview_label.accessibility_name = "Terrain operation preview details"
 	workflow_preview_label.text = "No pending operation. Select terrain in the viewport or use the numeric fallback."
 	form.add_child(workflow_preview_label)
@@ -1087,7 +1089,7 @@ func show_workflow_editor() -> void:
 	if package.terrain == null: show_blocking_error("Create terrain before using terrain workflow tools."); return
 	_set_terrain_tool("workflow")
 	if workflow == null or workflow.terrain != package.terrain: workflow = TerrainWorkflowScript.new(package.terrain)
-	var panel_position := Vector2i(maxi(12, int(size.x) - workflow_dialog.size.x - 12), 52)
+	var panel_position := Vector2i(maxi(12, int(size.x) - workflow_dialog.size.x - 12), 32)
 	workflow_dialog.popup(Rect2i(panel_position, workflow_dialog.size))
 	if workflow.selection.get_area() <= 0: _workflow_select()
 	refresh_workflow_overlay()
@@ -1101,13 +1103,35 @@ func close_workflow_editor() -> void:
 	_set_terrain_tool("selection", "Selection tool")
 
 
-func _on_workflow_window_input(event:InputEvent)->void:
-	if event is InputEventKey and event.pressed and not event.echo and event.keycode==KEY_ESCAPE:
-		_workflow_cancel()
-		workflow_dialog.set_input_as_handled()
-	elif event is InputEventKey and event.pressed and not event.echo and event.keycode in [KEY_ENTER, KEY_KP_ENTER]:
-		_workflow_confirm()
-		workflow_dialog.set_input_as_handled()
+func _on_workflow_window_input(event:InputEvent)->bool:
+	if not event is InputEventKey or not event.pressed or event.echo: return false
+	var handled := true
+	if event.keycode == KEY_ESCAPE: _workflow_cancel()
+	elif event.keycode in [KEY_ENTER, KEY_KP_ENTER]: _workflow_confirm()
+	elif event.ctrl_pressed and event.keycode == KEY_C:
+		if _workflow_focus_is_editing_text(): handled = false
+		else: _workflow_copy()
+	elif event.ctrl_pressed and event.keycode == KEY_V:
+		if _workflow_focus_is_editing_text(): handled = false
+		else: _workflow_paste()
+	elif not event.ctrl_pressed and not event.alt_pressed and event.keycode == KEY_S:
+		if _workflow_focus_is_editing_text(): handled = false
+		else: _workflow_begin_selection()
+	elif not event.ctrl_pressed and not event.alt_pressed and event.keycode == KEY_F:
+		if _workflow_focus_is_editing_text(): handled = false
+		else: _workflow_sample()
+	elif not event.ctrl_pressed and not event.alt_pressed and event.keycode == KEY_M:
+		if _workflow_focus_is_editing_text(): handled = false
+		else: _workflow_recenter()
+	else: handled = false
+	if handled: workflow_dialog.set_input_as_handled()
+	return handled
+
+
+func _workflow_focus_is_editing_text() -> bool:
+	var focus := workflow_dialog.gui_get_focus_owner()
+	if focus == null: focus = get_viewport().gui_get_focus_owner()
+	return focus is LineEdit or focus is TextEdit or focus is SpinBox
 
 
 func _workflow_begin_selection() -> void:
@@ -1289,7 +1313,9 @@ func _workflow_preview_text(preview: Dictionary) -> String:
 	for key in preview.get("domains", {}):
 		if preview.domains[key]: domains.append(str(key))
 	var changed := "pending destination validation" if int(preview.get("changed_cells", -1)) < 0 else "%d cells / %d vertices" % [int(preview.get("changed_cells", 0)), int(preview.get("changed_vertices", 0))]
-	var text := "%s | source %s → requested %s | committed %s\n%d × %d cells | changed %s | clipped %d | overlap %d\nDomains: %s | authored intersections: %s" % [str(preview.get("operation", "operation")).to_upper(), preview.get("source", Rect2i()), preview.get("requested", Rect2i()), preview.get("destination", Rect2i()), int(preview.get("dimensions", Vector2i.ZERO).x), int(preview.get("dimensions", Vector2i.ZERO).y), changed, int(preview.get("clipped_cells", 0)), int(preview.get("overlap_cells", 0)), ", ".join(domains), preview.get("intersecting_authored_ids", [])]
+	var intersections: Array[String] = []
+	for id in preview.get("intersecting_authored_ids", []): intersections.append(str(id))
+	var text := "%s | source %s → requested %s | committed %s\n%d × %d cells | changed %s | clipped %d | overlap %d\nDomains: %s | authored intersections: %s" % [str(preview.get("operation", "operation")).to_upper(), preview.get("source", Rect2i()), preview.get("requested", Rect2i()), preview.get("destination", Rect2i()), int(preview.get("dimensions", Vector2i.ZERO).x), int(preview.get("dimensions", Vector2i.ZERO).y), changed, int(preview.get("clipped_cells", 0)), int(preview.get("overlap_cells", 0)), ", ".join(domains), ", ".join(intersections) if not intersections.is_empty() else "none"]
 	if not preview.get("warnings", []).is_empty(): text += "\nWarning: %s" % " | ".join(preview.warnings)
 	if not preview.get("confirm_enabled", false):
 		text += "\n%s: %s" % ["BLOCKED" if not preview.get("ok", false) else "NEXT", preview.get("error", preview.get("recovery", "Preview again."))]
