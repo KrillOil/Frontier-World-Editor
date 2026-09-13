@@ -50,3 +50,25 @@ jobs:
             echo "$unexpected_errors" >&2
             exit 1
           fi
+      - name: Verify terrain direct manipulation at 1280x720
+        shell: bash
+        run: |
+          set -o pipefail
+          log_file="$(mktemp)"
+          if ! xvfb-run -a .godot-bin/Godot_v4.7.1-stable_linux.x86_64 --audio-driver Dummy --path . --script tests/test_terrain_t1_editor.gd 2>&1 | tee "$log_file"; then
+            echo "Terrain T1 Godot process exited nonzero." >&2
+            exit 1
+          fi
+          if grep -Eq 'SCRIPT ERROR|Parse Error|T1_FAIL' "$log_file"; then
+            echo "Terrain T1 emitted a script/runtime failure." >&2
+            exit 1
+          fi
+          if ! grep -Fq 'T1_SUMMARY|checks=25|failures=0' "$log_file"; then
+            echo "Terrain T1 did not reach its fail-closed terminal marker." >&2
+            exit 1
+          fi
+          unexpected_errors="$(grep -E '^ERROR:' "$log_file" | grep -Ev 'Pages in use exist at exit|Buffer with GL ID|RID allocations|shaders of type .* were never freed|ObjectDB instances were leaked' || true)"
+          if [[ -n "$unexpected_errors" ]]; then
+            echo "$unexpected_errors" >&2
+            exit 1
+          fi

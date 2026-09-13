@@ -24,6 +24,17 @@ var dirty_label: Label
 var terrain_mode_label: Label
 var inspector_content: VBoxContainer
 var palette_content: VBoxContainer
+var palette_panel: PanelContainer
+var palette_page: OptionButton
+var palette_summary: Label
+var palette_body: VBoxContainer
+var palette_collapse_button: Button
+var palette_dock_button: Button
+var palette_resize_handle: Button
+var palette_side := "left"
+var palette_width := 240
+var palette_collapsed := false
+var palette_last_page := "Units"
 var placement_ghost: MeshInstance3D
 var object_dialog: Window
 var unsaved_dialog: ConfirmationDialog
@@ -79,8 +90,18 @@ var workflow_dialog: Window
 var workflow_fields: Dictionary = {}
 var workflow_domains: Dictionary = {}
 var workflow_mode: OptionButton
+var workflow_preview_label: RichTextLabel
+var workflow_confirm_button: Button
+var workflow_cancel_button: Button
 var workflow
 var terrain_clipboard: Dictionary = {}
+var workflow_pending_preview: Dictionary = {}
+var workflow_select_armed := false
+var workflow_dragging := false
+var workflow_drag_start := Vector2i.ZERO
+var workflow_selection_before_gesture := Rect2i()
+var workflow_sampling := false
+var workflow_syncing_fields := false
 var terrain_tool_mode := "selection"
 var global_undo_domains: Array[Dictionary] = []
 var global_redo_domains: Array[Dictionary] = []
@@ -164,7 +185,7 @@ var orbit_target := Vector3.ZERO
 func _ready() -> void:
 	_build_toolbar()
 	_build_status_bar()
-	palette_content = $Workspace/Palette/Content
+	_build_palette_shell()
 	inspector_content = $Workspace/Inspector/Content
 	_build_viewport()
 	_build_sculpt_hud()
@@ -190,6 +211,134 @@ func _ready() -> void:
 		var resource_failures: Array[String] = package.resource_errors()
 		status("Opened Crimsdale" if resource_failures.is_empty() else " | ".join(resource_failures))
 	refresh_all()
+
+
+func _build_palette_shell() -> void:
+	palette_panel = $Workspace/Palette
+	var root_content: VBoxContainer = $Workspace/Palette/Content
+	for child in root_content.get_children():
+		child.free()
+	var title := Label.new()
+	title.name = "Title"
+	title.text = "CREATOR PALETTE"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 18)
+	root_content.add_child(title)
+	var header := HBoxContainer.new()
+	header.name = "PaletteHeader"
+	root_content.add_child(header)
+	palette_page = OptionButton.new()
+	palette_page.name = "Page"
+	palette_page.accessibility_name = "Creator palette page"
+	palette_page.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	for page_name in ["Terrain", "Units", "Props", "Regions", "Mission"]:
+		palette_page.add_item(page_name)
+	header.add_child(palette_page)
+	palette_dock_button = _add_button(header, "Dock ⇄", _toggle_palette_side)
+	palette_dock_button.accessibility_name = "Dock Creator palette on the opposite side"
+	palette_collapse_button = _add_button(header, "Collapse", _toggle_palette_collapsed)
+	palette_collapse_button.accessibility_name = "Collapse Creator palette"
+	palette_summary = Label.new()
+	palette_summary.name = "ActiveSummary"
+	palette_summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	palette_summary.accessibility_name = "Active Creator tool summary"
+	root_content.add_child(palette_summary)
+	palette_body = VBoxContainer.new()
+	palette_body.name = "PageContent"
+	palette_body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	root_content.add_child(palette_body)
+	palette_content = palette_body
+	palette_resize_handle = Button.new()
+	palette_resize_handle.name = "ResizeHandle"
+	palette_resize_handle.text = "↔ Drag to resize"
+	palette_resize_handle.flat = true
+	palette_resize_handle.mouse_default_cursor_shape = Control.CURSOR_HSIZE
+	palette_resize_handle.accessibility_name = "Resize Creator palette"
+	palette_resize_handle.gui_input.connect(_on_palette_resize_input)
+	root_content.add_child(palette_resize_handle)
+	_load_palette_preferences()
+	palette_page.select(maxi(0, ["Terrain", "Units", "Props", "Regions", "Mission"].find(palette_last_page)))
+	palette_page.item_selected.connect(_select_palette_page)
+	_apply_palette_layout()
+
+
+func _load_palette_preferences() -> void:
+	var config := ConfigFile.new()
+	if config.load("user://frontier_world_editor_ui.cfg") != OK:
+		return
+	palette_side = str(config.get_value("palette", "side", "left"))
+	if palette_side not in ["left", "right"]: palette_side = "left"
+	palette_width = clampi(int(config.get_value("palette", "width", 240)), 180, 420)
+	palette_collapsed = bool(config.get_value("palette", "collapsed", false))
+	palette_last_page = str(config.get_value("palette", "last_page", "Units"))
+	if palette_last_page not in ["Terrain", "Units", "Props", "Regions", "Mission"]: palette_last_page = "Units"
+
+
+func _save_palette_preferences() -> void:
+	var config := ConfigFile.new()
+	config.set_value("palette", "side", palette_side)
+	config.set_value("palette", "width", palette_width)
+	config.set_value("palette", "collapsed", palette_collapsed)
+	config.set_value("palette", "last_page", palette_last_page)
+	config.save("user://frontier_world_editor_ui.cfg")
+
+
+func _apply_palette_layout() -> void:
+	var workspace := get_node("Workspace")
+	workspace.move_child(palette_panel, 0 if palette_side == "left" else workspace.get_child_count() - 1)
+	palette_panel.custom_minimum_size.x = 42 if palette_collapsed else palette_width
+	palette_page.visible = not palette_collapsed
+	palette_dock_button.visible = not palette_collapsed
+	palette_summary.visible = not palette_collapsed
+	palette_body.visible = not palette_collapsed
+	palette_resize_handle.visible = not palette_collapsed
+	palette_collapse_button.text = "Expand" if palette_collapsed else "Collapse"
+	palette_collapse_button.accessibility_name = "%s Creator palette" % ("Expand" if palette_collapsed else "Collapse")
+	refresh_palette()
+
+
+func _toggle_palette_side() -> void:
+	palette_side = "right" if palette_side == "left" else "left"
+	_apply_palette_layout()
+	_save_palette_preferences()
+	status("Creator palette docked %s" % palette_side)
+
+
+func _toggle_palette_collapsed() -> void:
+	palette_collapsed = not palette_collapsed
+	_apply_palette_layout()
+	_save_palette_preferences()
+	status("Creator palette %s" % ("collapsed" if palette_collapsed else "expanded"))
+
+
+func _on_palette_resize_input(event: InputEvent) -> void:
+	if event is InputEventMouseMotion and event.button_mask & MOUSE_BUTTON_MASK_LEFT:
+		palette_width = clampi(palette_width + roundi(event.relative.x) * (1 if palette_side == "left" else -1), 180, 420)
+		palette_panel.custom_minimum_size.x = palette_width
+	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+		_save_palette_preferences()
+		status("Creator palette width: %d px" % palette_width)
+
+
+func _select_palette_page(index: int) -> void:
+	palette_last_page = palette_page.get_item_text(index)
+	_save_palette_preferences()
+	refresh_palette()
+	status("Creator palette: %s" % palette_last_page)
+
+
+func refresh_palette_summary() -> void:
+	if palette_summary == null:
+		return
+	var texture := "logical surface"
+	if surface_layers != null and surface_layers.item_count > 0:
+		texture = surface_layers.get_item_text(maxi(0, surface_layers.selected))
+	var brush := "none"
+	if sculpt_enabled and sculpt_radius != null: brush = "circle, %.1f m" % sculpt_radius.value
+	elif surface_enabled and surface_radius != null: brush = "circle, %.1f m" % surface_radius.value
+	elif pathing_enabled and pathing_radius != null: brush = "circle, %.1f m" % pathing_radius.value
+	elif terrain_tool_mode == "workflow" and workflow != null and workflow.selection.get_area() > 0: brush = "%d × %d cells" % [workflow.selection.size.x, workflow.selection.size.y]
+	palette_summary.text = "Page: %s\nTool: %s\nTexture: %s\nBrush/shape: %s" % [palette_last_page, _terrain_tool_display_name(terrain_tool_mode), texture, brush]
 
 
 func _build_toolbar() -> void:
@@ -382,7 +531,7 @@ func _update_brush_preview(screen_position: Vector2) -> void:
 	if brush_preview == null:
 		return
 	var point := ground_position(screen_position)
-	point.y = package.terrain.sample_height(point.x, point.z) + 0.03
+	point.y = package.terrain.effective_height(point.x, point.z) + 0.03
 	brush_preview.position = point
 	var radius := surface_radius.value if surface_enabled else sculpt_radius.value
 	brush_preview.scale = Vector3(radius, 1.0, radius)
@@ -420,6 +569,7 @@ func _set_terrain_tool(mode: String, message := "") -> void:
 	moving_instance = false
 	if workflow_dialog != null and mode != "workflow":
 		workflow_dialog.hide()
+		_clear_workflow_gesture(true)
 	terrain_tool_mode = mode
 	sculpt_enabled = mode == "sculpt"
 	surface_enabled = mode == "surface"
@@ -451,6 +601,7 @@ func _set_terrain_tool(mode: String, message := "") -> void:
 		terrain_mode_label.text = "Mode: %s" % _terrain_tool_display_name(mode)
 	if not message.is_empty():
 		status(message)
+	refresh_palette_summary()
 
 
 func _terrain_tool_display_name(mode: String) -> String:
@@ -472,6 +623,7 @@ func _reset_terrain_session(reset_history: bool, close_package_dialogs := false)
 	_cancel_pending_terrain_actions()
 	_set_terrain_tool("selection", "Selection tool")
 	terrain_clipboard.clear()
+	_clear_workflow_gesture(true)
 	sculptor = TerrainSculptorScript.new(package.terrain) if package.terrain != null else null
 	surface_painter = TerrainSurfacePainterScript.new(package.terrain) if package.terrain != null else null
 	pathing = TerrainPathingScript.new(package.terrain) if package.terrain != null else null
@@ -815,9 +967,10 @@ func refresh_pathing_overlay()->void:
 		if reasons.is_empty() and clear:continue
 		var color:=Color(0.9,0.15,0.2,0.48) if "authored_block" in reasons else Color(0.15,0.45,0.95,0.46) if "deep_water" in reasons else Color(0.95,0.55,0.1,0.44)
 		if not clear and (cell.x+cell.z)%2==0:color.a=0.7
-		var x0: float=float(grid.origin_x_m)+cell.x*float(grid.cell_size_m);var z0: float=float(grid.origin_z_m)+cell.z*float(grid.cell_size_m);var size: float=float(grid.cell_size_m);var y: float=package.terrain.sample_height(x0+size/2,z0+size/2)+0.06
+		var x0: float=float(grid.origin_x_m)+cell.x*float(grid.cell_size_m);var z0: float=float(grid.origin_z_m)+cell.z*float(grid.cell_size_m);var size: float=float(grid.cell_size_m);var y: float=package.terrain.effective_height(x0+size/2,z0+size/2)+0.06
 		for vertex in [Vector3(x0,y,z0),Vector3(x0,y,z0+size),Vector3(x0+size,y,z0),Vector3(x0+size,y,z0),Vector3(x0,y,z0+size),Vector3(x0+size,y,z0+size)]:mesh.surface_set_color(color);mesh.surface_add_vertex(vertex)
 	mesh.surface_end();var preview:=MeshInstance3D.new();preview.name="PathingOverlay";preview.mesh=mesh
+	preview.set_meta("overlay_label", "Pathing")
 	var material:=StandardMaterial3D.new();material.transparency=BaseMaterial3D.TRANSPARENCY_ALPHA;material.vertex_color_use_as_albedo=true;material.shading_mode=BaseMaterial3D.SHADING_MODE_UNSHADED;preview.material_override=material;world_root.add_child(preview)
 
 
@@ -865,20 +1018,21 @@ func toggle_environment_preview()->void:
 
 func _build_workflow_editor() -> void:
 	workflow_dialog = Window.new()
-	workflow_dialog.title = "Terrain Workflow"
-	workflow_dialog.size = Vector2i(520, 620)
+	workflow_dialog.title = "Terrain Workflow — Viewport Direct Manipulation"
+	workflow_dialog.size = Vector2i(620, 680)
+	workflow_dialog.exclusive = false
+	workflow_dialog.transient = false
 	workflow_dialog.close_requested.connect(close_workflow_editor)
-	workflow_dialog.window_input.connect(_on_workflow_window_input)
 	workflow_dialog.visible = false
 	add_child(workflow_dialog)
-	var input_guard=WorkflowInputGuardScript.new();input_guard.name="WorkflowInputGuard";input_guard.escape_requested.connect(close_workflow_editor);workflow_dialog.add_child(input_guard)
+	var input_guard=WorkflowInputGuardScript.new();input_guard.name="WorkflowInputGuard";input_guard.dispatcher=_on_workflow_window_input;workflow_dialog.add_child(input_guard)
 	var form := VBoxContainer.new()
 	form.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	form.offset_left = 18; form.offset_top = 18; form.offset_right = -18; form.offset_bottom = -18
 	form.add_theme_constant_override("separation", 2)
 	workflow_dialog.add_child(form)
 	var help := Label.new()
-	help.text = "Selection and paste use cell coordinates with a north-west anchor. Shortcuts: Ctrl+Z/Y undo/redo, Ctrl+C/V copy/paste, F samples, M recenters. Shortcuts pause while editing text."
+	help.text = "S drag-select · Ctrl+C copy · Ctrl+V paste ghost · Move starts a move ghost · Enter confirm · Escape cancel\nF then click inspect · M recenter · Middle-drag camera · Wheel zoom"
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	form.add_child(help)
 	var columns := HBoxContainer.new()
@@ -901,32 +1055,90 @@ func _build_workflow_editor() -> void:
 	workflow_fields.grid_snap.value = 1; workflow_fields.height_snap.value = 25
 	var domains_label := Label.new(); domains_label.text = "Clipboard domains"; options.add_child(domains_label)
 	for domain in ["height", "surface", "cliff", "water", "pathing"]:
-		var toggle := CheckBox.new(); toggle.text = domain.capitalize(); toggle.button_pressed = true; options.add_child(toggle); workflow_domains[domain] = toggle
+		var toggle := CheckBox.new(); toggle.text = domain.capitalize(); toggle.button_pressed = true; toggle.accessibility_name = "Include %s terrain domain" % domain; options.add_child(toggle); workflow_domains[domain] = toggle
 	workflow_mode = OptionButton.new(); workflow_mode.add_item("Replace enabled values"); workflow_mode.add_item("Merge non-default cliff/pathing values"); options.add_child(workflow_mode)
-	_add_button(options, "Select Area", _workflow_select)
-	_add_button(options, "Copy Selection  Ctrl+C", _workflow_copy)
-	_add_button(options, "Preview / Paste  Ctrl+V", _workflow_paste)
-	_add_button(options, "Sample NW Cell  F", _workflow_sample)
-	_add_button(options, "Recenter Minimap  M", _workflow_recenter)
+	var actions := HFlowContainer.new(); actions.add_theme_constant_override("h_separation", 4); form.add_child(actions)
+	_add_button(actions, "Select Area  S", _workflow_begin_selection)
+	_add_button(actions, "Copy  Ctrl+C", _workflow_copy)
+	_add_button(actions, "Preview Paste  Ctrl+V", _workflow_paste)
+	_add_button(actions, "Preview Move", _workflow_move)
+	_add_button(actions, "Validate Fields", _workflow_validate_fields)
+	_add_button(actions, "Inspect  F", _workflow_sample)
+	_add_button(actions, "Recenter  M", _workflow_recenter)
+	workflow_preview_label = RichTextLabel.new()
+	workflow_preview_label.name = "PreviewDetails"
+	workflow_preview_label.custom_minimum_size.y = 105
+	workflow_preview_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	workflow_preview_label.fit_content = false
+	workflow_preview_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	workflow_preview_label.scroll_active = true
+	workflow_preview_label.accessibility_name = "Terrain operation preview details"
+	workflow_preview_label.text = "No pending operation. Select terrain in the viewport or use the numeric fallback."
+	form.add_child(workflow_preview_label)
+	var confirmation := HBoxContainer.new(); form.add_child(confirmation)
+	workflow_confirm_button = _add_button(confirmation, "Confirm  Enter", _workflow_confirm)
+	workflow_confirm_button.accessibility_name = "Confirm terrain operation"
+	workflow_confirm_button.disabled = true
+	workflow_cancel_button = _add_button(confirmation, "Cancel  Escape", _workflow_cancel)
+	workflow_cancel_button.accessibility_name = "Cancel terrain gesture"
+	for field_name in ["paste_x", "paste_z"]:
+		workflow_fields[field_name].value_changed.connect(_workflow_destination_field_changed)
 
 
 func show_workflow_editor() -> void:
 	if package.terrain == null: show_blocking_error("Create terrain before using terrain workflow tools."); return
 	_set_terrain_tool("workflow")
-	workflow = TerrainWorkflowScript.new(package.terrain)
-	workflow_dialog.popup_centered()
-	status("Terrain workflow ready — selection, clipboard, snapping, sampling, minimap, and shortcuts")
+	if workflow == null or workflow.terrain != package.terrain: workflow = TerrainWorkflowScript.new(package.terrain)
+	var panel_position := Vector2i(maxi(12, int(size.x) - workflow_dialog.size.x - 12), 32)
+	workflow_dialog.popup(Rect2i(panel_position, workflow_dialog.size))
+	if workflow.selection.get_area() <= 0: _workflow_select()
+	refresh_workflow_overlay()
+	status("Terrain workflow ready — press S and drag a source area")
 
 
 func close_workflow_editor() -> void:
+	_clear_workflow_gesture(true)
+	workflow_domains.water.disabled = false
 	workflow_dialog.hide()
 	_set_terrain_tool("selection", "Selection tool")
 
 
-func _on_workflow_window_input(event:InputEvent)->void:
-	if event is InputEventKey and event.pressed and not event.echo and event.keycode==KEY_ESCAPE:
-		close_workflow_editor()
-		workflow_dialog.set_input_as_handled()
+func _on_workflow_window_input(event:InputEvent)->bool:
+	if not event is InputEventKey or not event.pressed or event.echo: return false
+	var handled := true
+	if event.keycode == KEY_ESCAPE: _workflow_cancel()
+	elif event.keycode in [KEY_ENTER, KEY_KP_ENTER]: _workflow_confirm()
+	elif event.ctrl_pressed and event.keycode == KEY_C:
+		if _workflow_focus_is_editing_text(): handled = false
+		else: _workflow_copy()
+	elif event.ctrl_pressed and event.keycode == KEY_V:
+		if _workflow_focus_is_editing_text(): handled = false
+		else: _workflow_paste()
+	elif not event.ctrl_pressed and not event.alt_pressed and event.keycode == KEY_S:
+		if _workflow_focus_is_editing_text(): handled = false
+		else: _workflow_begin_selection()
+	elif not event.ctrl_pressed and not event.alt_pressed and event.keycode == KEY_F:
+		if _workflow_focus_is_editing_text(): handled = false
+		else: _workflow_sample()
+	elif not event.ctrl_pressed and not event.alt_pressed and event.keycode == KEY_M:
+		if _workflow_focus_is_editing_text(): handled = false
+		else: _workflow_recenter()
+	else: handled = false
+	if handled: workflow_dialog.set_input_as_handled()
+	return handled
+
+
+func _workflow_focus_is_editing_text() -> bool:
+	var focus := workflow_dialog.gui_get_focus_owner()
+	if focus == null: focus = get_viewport().gui_get_focus_owner()
+	return focus is LineEdit or focus is TextEdit or focus is SpinBox
+
+
+func _workflow_begin_selection() -> void:
+	_clear_workflow_gesture(false)
+	workflow_selection_before_gesture = workflow.selection
+	workflow_select_armed = true
+	status("Select Area: drag across terrain; every drag direction is inclusive")
 
 
 func _workflow_select() -> void:
@@ -935,37 +1147,289 @@ func _workflow_select() -> void:
 	var first := Vector2i(int(workflow_fields.x.value), int(workflow_fields.z.value))
 	var last := first + Vector2i(int(workflow_fields.width.value), int(workflow_fields.depth.value)) - Vector2i.ONE
 	var rect: Rect2i = workflow.select_cells(first, last)
+	_workflow_sync_source_fields(rect)
+	refresh_workflow_overlay()
+	refresh_palette_summary()
 	status("Selected %d × %d cells at %d, %d | snap %d cells / %d cm" % [rect.size.x, rect.size.y, rect.position.x, rect.position.y, workflow.grid_snap_cells, workflow.height_snap_cm])
 
 
 func _workflow_copy() -> void:
 	_workflow_select()
+	_capture_workflow_clipboard()
+	status("Copied %d terrain cells without mutation (clipboard v1, north-west anchor)" % workflow.selection.get_area())
+
+
+func _capture_workflow_clipboard() -> void:
 	var domains := {}
 	for key in workflow_domains: domains[key] = workflow_domains[key].button_pressed
 	terrain_clipboard = workflow.copy_selection(domains)
-	status("Copied %d terrain cells (clipboard v1, north-west anchor)" % workflow.selection.get_area())
 
 
 func _workflow_paste() -> void:
 	if terrain_clipboard.is_empty(): status("Copy a terrain selection before pasting"); return
-	var destination := Vector2i(int(workflow_fields.paste_x.value), int(workflow_fields.paste_z.value))
-	var preview: Dictionary = workflow.preview_paste(terrain_clipboard, destination)
-	if not preview.get("ok", false): status(preview.get("error", "Paste is unavailable")); return
-	if workflow.paste(terrain_clipboard, destination, "replace" if workflow_mode.selected == 0 else "merge"):
-		refresh_all(); status("Pasted atomically; %d cell(s) clipped | Undo available" % preview.clipped_cells)
-	else: status(workflow.last_error)
+	workflow_domains.water.disabled = false
+	_workflow_update_live_destination("paste", Vector2i(int(workflow_fields.paste_x.value), int(workflow_fields.paste_z.value)))
+
+
+func _workflow_move() -> void:
+	_workflow_select()
+	workflow_domains.water.button_pressed = false
+	workflow_domains.water.disabled = true
+	_capture_workflow_clipboard()
+	_workflow_update_live_destination("move", Vector2i(int(workflow_fields.paste_x.value), int(workflow_fields.paste_z.value)))
+
+
+func _workflow_update_live_destination(operation: String, destination: Vector2i) -> void:
+	if terrain_clipboard.is_empty(): return
+	workflow.grid_snap_cells = int(workflow_fields.grid_snap.value)
+	var snapped: Vector2i = workflow.snapped_cell(destination)
+	_workflow_sync_destination_fields(snapped)
+	var operation_mode := "replace" if operation == "move" or workflow_mode.selected == 0 else "merge"
+	var source := Rect2i(Vector2i(terrain_clipboard.source_position[0], terrain_clipboard.source_position[1]), Vector2i(terrain_clipboard.size_cells[0], terrain_clipboard.size_cells[1]))
+	workflow_pending_preview = workflow.preview_destination(terrain_clipboard, snapped, operation, operation_mode, _workflow_intersecting_ids(source, Rect2i(snapped, Vector2i(terrain_clipboard.size_cells[0], terrain_clipboard.size_cells[1]))))
+	workflow_confirm_button.disabled = true
+	workflow_preview_label.text = _workflow_preview_text(workflow_pending_preview)
+	refresh_workflow_overlay()
+	status("%s ghost active — click a destination for exact validation" % operation.capitalize())
+
+
+func _workflow_update_preview(operation: String, destination: Vector2i) -> void:
+	if terrain_clipboard.is_empty(): return
+	workflow.grid_snap_cells = int(workflow_fields.grid_snap.value)
+	var snapped: Vector2i = workflow.snapped_cell(destination)
+	_workflow_sync_destination_fields(snapped)
+	var operation_mode := "replace" if operation == "move" or workflow_mode.selected == 0 else "merge"
+	var source := Rect2i(Vector2i(terrain_clipboard.source_position[0], terrain_clipboard.source_position[1]), Vector2i(terrain_clipboard.size_cells[0], terrain_clipboard.size_cells[1]))
+	workflow_pending_preview = workflow.preview_operation(terrain_clipboard, snapped, operation, operation_mode, _workflow_intersecting_ids(source, Rect2i(snapped, Vector2i(terrain_clipboard.size_cells[0], terrain_clipboard.size_cells[1]))))
+	workflow_confirm_button.disabled = not workflow_pending_preview.get("confirm_enabled", false)
+	workflow_preview_label.text = _workflow_preview_text(workflow_pending_preview)
+	refresh_workflow_overlay()
+	status("%s" % ("%s preview ready — Enter or Confirm commits one transaction" % operation.capitalize() if workflow_pending_preview.get("confirm_enabled", false) else workflow_pending_preview.get("error", "Preview unavailable")))
+
+
+func _workflow_validate_fields() -> void:
+	if workflow_pending_preview.is_empty():
+		status("Start a Paste or Move preview before validating its destination")
+		return
+	_workflow_update_preview(str(workflow_pending_preview.operation), Vector2i(int(workflow_fields.paste_x.value), int(workflow_fields.paste_z.value)))
+
+
+func _workflow_confirm() -> void:
+	if workflow_pending_preview.is_empty():
+		status("Start a Paste or Move preview before confirming")
+		return
+	if not workflow_pending_preview.has("candidate"):
+		_workflow_update_preview(str(workflow_pending_preview.operation), workflow_pending_preview.requested.position)
+		if not workflow_pending_preview.get("confirm_enabled", false): return
+	if workflow.confirm_operation(workflow_pending_preview):
+		var operation := str(workflow_pending_preview.operation).capitalize()
+		var committed: Rect2i = workflow_pending_preview.destination
+		workflow.selection = committed
+		_workflow_sync_source_fields(committed)
+		_clear_workflow_gesture(false)
+		refresh_all()
+		refresh_workflow_overlay()
+		status("%s committed as one Undo entry" % operation)
+	else:
+		workflow_pending_preview.confirm_enabled = false
+		workflow_pending_preview.error = workflow.last_error
+		workflow_pending_preview.recovery = "Preview the operation again from the current terrain."
+		workflow_confirm_button.disabled = true
+		workflow_preview_label.text = _workflow_preview_text(workflow_pending_preview)
+		status(workflow.last_error)
+
+
+func _workflow_cancel() -> void:
+	if workflow_dragging or workflow_select_armed or workflow_sampling or not workflow_pending_preview.is_empty():
+		_clear_workflow_gesture(false)
+		status("Terrain gesture cancelled; source selection and authored data are unchanged")
+	else:
+		close_workflow_editor()
+
+
+func _clear_workflow_gesture(remove_overlay: bool) -> void:
+	if (workflow_dragging or workflow_select_armed) and workflow != null and workflow_selection_before_gesture.get_area() > 0:
+		workflow.selection = workflow_selection_before_gesture
+		if not workflow_fields.is_empty(): _workflow_sync_source_fields(workflow.selection)
+	workflow_pending_preview.clear()
+	workflow_dragging = false
+	workflow_select_armed = false
+	workflow_selection_before_gesture = Rect2i()
+	workflow_sampling = false
+	if workflow_domains.has("water"): workflow_domains.water.disabled = false
+	if workflow_confirm_button != null: workflow_confirm_button.disabled = true
+	if workflow_preview_label != null: workflow_preview_label.text = "No pending operation. Source selection remains available."
+	if remove_overlay:
+		var overlay := world_root.get_node_or_null("WorkflowOverlay") if world_root != null else null
+		if overlay != null: overlay.free()
+	else:
+		refresh_workflow_overlay()
 
 
 func _workflow_sample() -> void:
-	_workflow_select()
-	var sample: Dictionary = workflow.sample(workflow.selection.position)
-	status("Sample %s: %d cm, cliff %d, movement %s, placement %s" % [sample.cell, sample.height_cm, sample.cliff_level, sample.movement, sample.placement])
+	workflow_sampling = true
+	workflow_select_armed = false
+	workflow_dragging = false
+	status("Inspect Terrain: click the displayed terrain")
+
+
+func _workflow_sample_cell(cell: Vector2i) -> void:
+	var sample: Dictionary = workflow.sample(cell, _authored_position_map())
+	var surfaces: Array[String] = []
+	for surface in sample.surfaces: surfaces.append("%s %d (%0.1f%%)" % [surface.surface_id, surface.weight, surface.percent])
+	var attachments: Array[String] = []
+	for attachment in sample.attachments: attachments.append(str(attachment.get("target_id", attachment.get("id", "attachment"))))
+	workflow_preview_label.text = "INSPECT cell %s | world (%0.2f, %0.2f, %0.2f)\nHeight authored %d cm / effective %d cm | surfaces %s\nCliff %d %s | water %s depth %d cm\nPathing movement %s → %s | placement %s → %s | attachments %s" % [sample.cell, sample.world.x, sample.world.y, sample.world.z, sample.authored_height_cm, sample.effective_height_cm, ", ".join(surfaces), sample.cliff_level, sample.cliff_style_id, sample.water_class, sample.water_depth_cm, sample.movement, sample.movement_reasons, sample.placement, sample.placement_reasons, attachments]
+	workflow_sampling = false
+	status("Inspected terrain cell %s" % sample.cell)
 
 
 func _workflow_recenter() -> void:
 	if workflow == null: workflow = TerrainWorkflowScript.new(package.terrain)
 	orbit_target = workflow.minimap_recenter(Vector2(0.5, 0.5)); update_camera()
 	status("Minimap recentered at %0.1f, %0.1f" % [orbit_target.x, orbit_target.z])
+
+
+func _workflow_destination_field_changed(_value: float) -> void:
+	if workflow_syncing_fields or workflow_pending_preview.is_empty(): return
+	_workflow_update_preview(str(workflow_pending_preview.operation), Vector2i(int(workflow_fields.paste_x.value), int(workflow_fields.paste_z.value)))
+
+
+func _workflow_sync_source_fields(rect: Rect2i) -> void:
+	workflow_syncing_fields = true
+	workflow_fields.x.value = rect.position.x; workflow_fields.z.value = rect.position.y
+	workflow_fields.width.value = rect.size.x; workflow_fields.depth.value = rect.size.y
+	workflow_syncing_fields = false
+
+
+func _workflow_sync_destination_fields(destination: Vector2i) -> void:
+	workflow_syncing_fields = true
+	workflow_fields.paste_x.value = destination.x; workflow_fields.paste_z.value = destination.y
+	workflow_syncing_fields = false
+
+
+func _workflow_preview_text(preview: Dictionary) -> String:
+	var domains: Array[String] = []
+	for key in preview.get("domains", {}):
+		if preview.domains[key]: domains.append(str(key))
+	var changed := "pending destination validation" if int(preview.get("changed_cells", -1)) < 0 else "%d cells / %d vertices" % [int(preview.get("changed_cells", 0)), int(preview.get("changed_vertices", 0))]
+	var intersections: Array[String] = []
+	for id in preview.get("intersecting_authored_ids", []): intersections.append(str(id))
+	var text := "%s | source %s → requested %s | committed %s\n%d × %d cells | changed %s | clipped %d | overlap %d\nDomains: %s | authored intersections: %s" % [str(preview.get("operation", "operation")).to_upper(), preview.get("source", Rect2i()), preview.get("requested", Rect2i()), preview.get("destination", Rect2i()), int(preview.get("dimensions", Vector2i.ZERO).x), int(preview.get("dimensions", Vector2i.ZERO).y), changed, int(preview.get("clipped_cells", 0)), int(preview.get("overlap_cells", 0)), ", ".join(domains), ", ".join(intersections) if not intersections.is_empty() else "none"]
+	if not preview.get("warnings", []).is_empty(): text += "\nWarning: %s" % " | ".join(preview.warnings)
+	if not preview.get("confirm_enabled", false):
+		text += "\n%s: %s" % ["BLOCKED" if not preview.get("ok", false) else "NEXT", preview.get("error", preview.get("recovery", "Preview again."))]
+	return text
+
+
+func _workflow_intersecting_ids(source: Rect2i, destination: Rect2i) -> Array:
+	var ids: Array = []
+	for entry in package.world.get("objects", []) + package.world.get("spawn_points", []):
+		if not entry.get("position") is Array: continue
+		var cell: Vector2i = workflow.world_to_cell(array_to_vector(entry.position), false)
+		if source.has_point(cell) or destination.has_point(cell): ids.append(entry.get("instance_id", entry.get("spawn_id", "authored")))
+	if package.scenario != null:
+		for region in package.scenario.data.get("regions", []):
+			if _workflow_region_intersects(region, source) or _workflow_region_intersects(region, destination): ids.append(region.region_id)
+	ids.sort()
+	return ids
+
+
+func _authored_position_map() -> Dictionary:
+	var result := {}
+	for entry in package.world.get("objects", []) + package.world.get("spawn_points", []):
+		var id := str(entry.get("instance_id", entry.get("spawn_id", "")))
+		if not id.is_empty() and entry.get("position") is Array: result[id] = entry.position
+	return result
+
+
+func _workflow_region_intersects(region: Dictionary, cells: Rect2i) -> bool:
+	if cells.get_area() <= 0: return false
+	var grid: Dictionary = package.terrain.data.grid
+	var cell_size := float(grid.cell_size_m)
+	var bounds := Rect2(float(grid.origin_x_m) + cells.position.x * cell_size, float(grid.origin_z_m) + cells.position.y * cell_size, cells.size.x * cell_size, cells.size.y * cell_size)
+	var points: Array[Vector2] = []
+	for value in region.get("points", []):
+		if value is Array and value.size() >= 3: points.append(Vector2(float(value[0]), float(value[2])))
+	if points.is_empty(): return false
+	if region.get("shape") == "rectangle" and points.size() >= 2:
+		var region_bounds := Rect2(Vector2(minf(points[0].x, points[1].x), minf(points[0].y, points[1].y)), Vector2(absf(points[1].x - points[0].x), absf(points[1].y - points[0].y)))
+		return bounds.intersects(region_bounds, true)
+	for point in points:
+		if bounds.has_point(point): return true
+	if region.get("shape") == "path":
+		var corners := [bounds.position, Vector2(bounds.end.x, bounds.position.y), bounds.end, Vector2(bounds.position.x, bounds.end.y)]
+		for index in points.size() - 1:
+			for edge in 4:
+				if Geometry2D.segment_intersects_segment(points[index], points[index + 1], corners[edge], corners[(edge + 1) % 4]) != null: return true
+	return false
+
+
+func refresh_workflow_overlay() -> void:
+	if world_root == null: return
+	var existing := world_root.get_node_or_null("WorkflowOverlay")
+	if existing != null: existing.free()
+	if terrain_tool_mode != "workflow" or workflow == null or workflow.selection.get_area() <= 0 or package.terrain == null: return
+	var root_3d := Node3D.new()
+	root_3d.name = "WorkflowOverlay"
+	root_3d.set_meta("overlay_label", "Terrain Workflow")
+	root_3d.set_meta("source_rect", workflow.selection)
+	world_root.add_child(root_3d)
+	_add_workflow_rect_overlay(root_3d, workflow.selection, "SOURCE %d × %d" % [workflow.selection.size.x, workflow.selection.size.y], Color(1.0, 0.82, 0.18, 1.0), false)
+	if not workflow_pending_preview.is_empty():
+		var destination: Rect2i = workflow_pending_preview.get("destination", Rect2i())
+		if destination.get_area() > 0:
+			var suffix := " — BLOCKED" if not workflow_pending_preview.get("ok", false) else " — SET DESTINATION" if not workflow_pending_preview.get("destination_settled", true) else ""
+			var label := "%s GHOST%s" % [str(workflow_pending_preview.operation).to_upper(), suffix]
+			_add_workflow_rect_overlay(root_3d, destination, label, Color(0.15, 0.9, 1.0, 0.75) if workflow_pending_preview.get("confirm_enabled", false) else Color(1.0, 0.25, 0.25, 0.75), true)
+
+
+func _add_workflow_rect_overlay(parent: Node3D, rect: Rect2i, label_text: String, color: Color, ghost: bool) -> void:
+	var grid: Dictionary = package.terrain.data.grid
+	var cell_size := float(grid.cell_size_m)
+	var x0 := float(grid.origin_x_m) + rect.position.x * cell_size
+	var z0 := float(grid.origin_z_m) + rect.position.y * cell_size
+	var x1 := x0 + rect.size.x * cell_size
+	var z1 := z0 + rect.size.y * cell_size
+	var points: Array[Vector3] = []
+	for point in [Vector2(x0, z0), Vector2(x1, z0), Vector2(x1, z1), Vector2(x0, z1), Vector2(x0, z0)]:
+		points.append(Vector3(point.x, package.terrain.effective_height(point.x, point.y) + (0.16 if ghost else 0.12), point.y))
+	var line := ImmediateMesh.new()
+	line.surface_begin(Mesh.PRIMITIVE_LINE_STRIP)
+	for point in points:
+		line.surface_set_color(color)
+		line.surface_add_vertex(point)
+	line.surface_end()
+	var outline := MeshInstance3D.new()
+	outline.name = "DestinationOutline" if ghost else "SourceOutline"
+	outline.mesh = line
+	var line_material := StandardMaterial3D.new()
+	line_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	line_material.vertex_color_use_as_albedo = true
+	outline.material_override = line_material
+	parent.add_child(outline)
+	var center := Vector3((x0 + x1) * 0.5, package.terrain.effective_height((x0 + x1) * 0.5, (z0 + z1) * 0.5) + 0.2, (z0 + z1) * 0.5)
+	if ghost:
+		var fill := MeshInstance3D.new()
+		fill.name = "DestinationGhost"
+		var box := BoxMesh.new()
+		box.size = Vector3(rect.size.x * cell_size, 0.04, rect.size.y * cell_size)
+		var fill_material := StandardMaterial3D.new()
+		fill_material.albedo_color = color * Color(1, 1, 1, 0.32)
+		fill_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		fill_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		box.material = fill_material
+		fill.mesh = box
+		fill.position = center
+		parent.add_child(fill)
+	var label := Label3D.new()
+	label.name = "DestinationLabel" if ghost else "SourceLabel"
+	label.text = label_text
+	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	label.no_depth_test = true
+	label.modulate = color
+	label.position = center + Vector3.UP * 0.35
+	parent.add_child(label)
 
 
 func _build_scenario_editor() -> void:
@@ -1918,7 +2382,7 @@ func refresh_scenario_regions() -> void:
 	var existing := world_root.get_node_or_null("ScenarioRegions")
 	if existing != null: existing.free()
 	if package.scenario == null: return
-	var root_3d := Node3D.new(); root_3d.name = "ScenarioRegions"; world_root.add_child(root_3d)
+	var root_3d := Node3D.new(); root_3d.name = "ScenarioRegions"; root_3d.set_meta("overlay_label", "Scenario Regions"); world_root.add_child(root_3d)
 	for region in package.scenario.data.regions:
 		var marker := MeshInstance3D.new(); marker.name = region.region_id
 		var material := StandardMaterial3D.new(); material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED; material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA; material.albedo_color = Color(0.2,0.85,1.0,0.45)
@@ -1997,6 +2461,7 @@ func refresh_terrain_preview() -> void:
 	terrain_mesh.material_override = material
 	world_root.add_child(terrain_mesh)
 	refresh_water_preview()
+	refresh_workflow_overlay()
 
 
 func _terrain_preview_corner_heights(x:int,z:int)->Array[float]:
@@ -2059,18 +2524,50 @@ func refresh_water_preview() -> void:
 
 func refresh_palette() -> void:
 	for child in palette_content.get_children():
-		if child.name != "Title":
-			child.free()
+		child.free()
+	refresh_palette_summary()
+	if palette_collapsed:
+		return
+	match palette_last_page:
+		"Terrain":
+			_add_button(palette_content, "Select / Copy / Move / Paste", show_workflow_editor)
+			_add_button(palette_content, "Terrain Grid", show_terrain_editor)
+			_add_button(palette_content, "Sculpt", toggle_sculpt_mode)
+			_add_button(palette_content, "Surface Layers", show_surface_editor)
+			_add_button(palette_content, "Cliffs & Water", show_cliff_water_editor)
+			_add_button(palette_content, "Pathing", show_pathing_editor)
+			var note := Label.new()
+			note.text = "T1 previews logical surface weights; textured terrain rendering arrives in T2."
+			note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			palette_content.add_child(note)
+			return
+		"Regions":
+			_add_button(palette_content, "Open Region Authoring", show_scenario_editor)
+			var note := Label.new()
+			note.text = "Region data stays visible as an independently labelled viewport overlay."
+			note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			palette_content.add_child(note)
+			return
+		"Mission":
+			_add_button(palette_content, "Open Mission Authoring", show_scenario_editor)
+			_add_button(palette_content, "Test World ▶", test_world)
+			var note := Label.new()
+			note.text = "Mission tools use authored definitions and world data; the palette does not create runtime coupling."
+			note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			palette_content.add_child(note)
+			return
 	var search := LineEdit.new()
 	search.name = "Search"
-	search.placeholder_text = "Search definitions"
+	search.placeholder_text = "Search %s" % palette_last_page.to_lower()
+	search.accessibility_name = search.placeholder_text
 	palette_content.add_child(search)
 	var list := VBoxContainer.new()
 	list.name = "Definitions"
 	list.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	palette_content.add_child(list)
 	for category in WorldPackageScript.CATEGORIES:
-		if category=="ability":continue
+		if palette_last_page == "Units" and category != "unit": continue
+		if palette_last_page == "Props" and category in ["unit", "ability"]: continue
 		var heading := Label.new()
 		heading.text = category.to_upper()
 		list.add_child(heading)
@@ -2081,14 +2578,15 @@ func refresh_palette() -> void:
 				button.tooltip_text = definition.definition_id
 				button.pressed.connect(start_placement.bind(definition.definition_id))
 				list.add_child(button)
-	var spawn_heading := Label.new()
-	spawn_heading.text = "SPAWN POINTS"
-	list.add_child(spawn_heading)
-	var spawn_button := Button.new()
-	spawn_button.text = "Player Start"
-	spawn_button.tooltip_text = "Place or move player_start"
-	spawn_button.pressed.connect(start_placement.bind("__player_start"))
-	list.add_child(spawn_button)
+	if palette_last_page == "Units":
+		var spawn_heading := Label.new()
+		spawn_heading.text = "SPAWN POINTS"
+		list.add_child(spawn_heading)
+		var spawn_button := Button.new()
+		spawn_button.text = "Player Start"
+		spawn_button.tooltip_text = "Place or move player_start"
+		spawn_button.pressed.connect(start_placement.bind("__player_start"))
+		list.add_child(spawn_button)
 	search.text_changed.connect(func(query):
 		for control in list.get_children():
 			if control is Button:
@@ -2224,6 +2722,8 @@ func refresh_inspector() -> void:
 
 
 func _on_viewport_input(event: InputEvent) -> void:
+	if terrain_tool_mode == "workflow" and workflow_dialog.visible and _handle_workflow_viewport_input(event):
+		return
 	if pathing_enabled and event is InputEventMouseButton and event.button_index==MOUSE_BUTTON_LEFT:
 		var point:=ground_position(event.position)
 		if event.pressed:pathing.begin_paint(pathing_layer.get_item_metadata(pathing_layer.selected),pathing_blocked.button_pressed,Vector2(point.x,point.z),pathing_radius.value)
@@ -2253,7 +2753,12 @@ func _on_viewport_input(event: InputEvent) -> void:
 		var point := ground_position(event.position)
 		if event.pressed:
 			var selected_tool: String = sculpt_tool.get_item_metadata(sculpt_tool.selected)
-			sculptor.begin(selected_tool, Vector2(point.x, point.z), _sculpt_parameters())
+			var parameters := _sculpt_parameters()
+			if sculpt_sample_target.button_pressed:
+				if workflow == null: workflow = TerrainWorkflowScript.new(package.terrain)
+				workflow.height_snap_cm = int(workflow_fields.height_snap.value)
+				parameters.target_height_cm = workflow.snapped_height_cm(roundi(package.terrain.sample_height(point.x, point.z) * 100.0))
+			sculptor.begin(selected_tool, Vector2(point.x, point.z), parameters)
 			refresh_terrain_preview()
 		else:
 			if sculptor.commit():
@@ -2343,6 +2848,57 @@ func _on_viewport_input(event: InputEvent) -> void:
 			update_ghost_rotation()
 
 
+func _handle_workflow_viewport_input(event: InputEvent) -> bool:
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_S:
+			_workflow_begin_selection(); return true
+		if event.keycode in [KEY_ENTER, KEY_KP_ENTER]:
+			_workflow_confirm(); return true
+		if event.keycode == KEY_ESCAPE:
+			_workflow_cancel(); return true
+		if event.keycode == KEY_F:
+			_workflow_sample(); return true
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		viewport_container.grab_focus()
+		var cell: Vector2i = workflow.world_to_cell(ground_position(event.position))
+		if event.pressed:
+			if workflow_sampling:
+				_workflow_sample_cell(cell)
+				return true
+			if not workflow_pending_preview.is_empty():
+				_workflow_update_preview(str(workflow_pending_preview.operation), cell)
+				return true
+			if workflow_select_armed:
+				workflow_drag_start = cell
+				workflow_dragging = true
+				workflow.select_cells(cell, cell)
+				_workflow_sync_source_fields(workflow.selection)
+				refresh_workflow_overlay()
+				return true
+		elif workflow_dragging:
+			workflow.select_cells(workflow_drag_start, cell)
+			workflow_dragging = false
+			workflow_select_armed = false
+			workflow_selection_before_gesture = Rect2i()
+			_workflow_sync_source_fields(workflow.selection)
+			refresh_workflow_overlay()
+			refresh_palette_summary()
+			status("Selected %d × %d cells; Copy or Move is ready" % [workflow.selection.size.x, workflow.selection.size.y])
+			return true
+	if event is InputEventMouseMotion:
+		if workflow_dragging and event.button_mask & MOUSE_BUTTON_MASK_LEFT:
+			var cell: Vector2i = workflow.world_to_cell(ground_position(event.position))
+			workflow.select_cells(workflow_drag_start, cell)
+			_workflow_sync_source_fields(workflow.selection)
+			refresh_workflow_overlay()
+			return true
+		if not workflow_pending_preview.is_empty() and not (event.button_mask & MOUSE_BUTTON_MASK_MIDDLE):
+			var cell: Vector2i = workflow.world_to_cell(ground_position(event.position))
+			if cell != workflow_pending_preview.requested.position:
+				_workflow_update_live_destination(str(workflow_pending_preview.operation), cell)
+	return false
+
+
 func select_at(screen_position: Vector2) -> void:
 	var from := camera.project_ray_origin(screen_position)
 	var to := from + camera.project_ray_normal(screen_position) * 1000.0
@@ -2358,8 +2914,54 @@ func ground_position(screen_position: Vector2) -> Vector3:
 	var direction := camera.project_ray_normal(screen_position)
 	if abs(direction.y) < 0.0001:
 		return Vector3.ZERO
-	var distance := -from.y / direction.y
-	return from + direction * max(distance, 0.0)
+	if package.terrain != null:
+		var terrain_hit := _ray_terrain_position(from, direction)
+		if terrain_hit.get("hit", false): return terrain_hit.position
+	var distance := maxf(-from.y / direction.y, 0.0)
+	var point: Vector3 = from + direction * distance
+	if package.terrain != null:
+		point.y = package.terrain.effective_height(point.x, point.z)
+	return point
+
+
+func _ray_terrain_position(from: Vector3, direction: Vector3) -> Dictionary:
+	var grid: Dictionary = package.terrain.data.grid
+	var west := float(grid.origin_x_m)
+	var north := float(grid.origin_z_m)
+	var east := west + int(grid.width_cells) * float(grid.cell_size_m)
+	var south := north + int(grid.depth_cells) * float(grid.cell_size_m)
+	var step := maxf(0.1, float(grid.cell_size_m) * 0.25)
+	var previous_t := 0.0
+	var previous_difference := INF
+	var previous_valid := false
+	var distance := 0.0
+	while distance <= 1000.0:
+		var point := from + direction * distance
+		var valid := point.x >= west and point.x <= east and point.z >= north and point.z <= south
+		if valid:
+			var height: float = package.terrain.effective_height(point.x, point.z)
+			var difference := point.y - height
+			if difference <= 0.0:
+				if not previous_valid:
+					return {"hit": true, "position": Vector3(point.x, height, point.z)}
+				var low := previous_t
+				var high := distance
+				for ignored in 12:
+					var middle := (low + high) * 0.5
+					var middle_point := from + direction * middle
+					var middle_height: float = package.terrain.effective_height(middle_point.x, middle_point.z)
+					if middle_point.y - middle_height > 0.0: low = middle
+					else: high = middle
+				var hit := from + direction * high
+				hit.y = package.terrain.effective_height(hit.x, hit.z)
+				return {"hit": true, "position": hit}
+			previous_difference = difference
+			previous_t = distance
+			previous_valid = true
+		elif previous_valid and previous_difference > 0.0:
+			break
+		distance += step
+	return {"hit": false}
 
 
 func start_placement(definition_id: String) -> void:
@@ -3031,7 +3633,7 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	if not event is InputEventKey or not event.pressed or event.echo:
 		return
 	if event.keycode==KEY_ESCAPE and workflow_dialog.visible:
-		close_workflow_editor();get_viewport().set_input_as_handled();return
+		_workflow_cancel();get_viewport().set_input_as_handled();return
 	var focus := get_viewport().gui_get_focus_owner()
 	if focus is LineEdit or focus is TextEdit or focus is SpinBox:
 		return
@@ -3043,6 +3645,10 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		if workflow_dialog.visible: _workflow_copy(); get_viewport().set_input_as_handled()
 	elif package.terrain != null and event.ctrl_pressed and event.keycode == KEY_V:
 		if workflow_dialog.visible: _workflow_paste(); get_viewport().set_input_as_handled()
+	elif package.terrain != null and workflow_dialog.visible and event.keycode == KEY_S:
+		_workflow_begin_selection(); get_viewport().set_input_as_handled()
+	elif package.terrain != null and workflow_dialog.visible and event.keycode in [KEY_ENTER, KEY_KP_ENTER]:
+		_workflow_confirm(); get_viewport().set_input_as_handled()
 	elif package.terrain != null and workflow_dialog.visible and event.keycode == KEY_F:
 		_workflow_sample(); get_viewport().set_input_as_handled()
 	elif package.terrain != null and workflow_dialog.visible and event.keycode == KEY_M:
